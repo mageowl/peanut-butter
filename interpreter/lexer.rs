@@ -48,8 +48,8 @@ pub enum Token {
     BraceClose,
 
     KeywordFunction,
+    KeywordMut,
     KeywordLet,
-    KeywordConst,
     KeywordType,
     KeywordWith,
     KeywordUse,
@@ -271,8 +271,8 @@ impl<'a> TokenStream<'a> {
                 };
                 match string.as_str() {
                     "fn" => Some(Ok(span.with(Token::KeywordFunction))),
+                    "mut" => Some(Ok(span.with(Token::KeywordMut))),
                     "let" => Some(Ok(span.with(Token::KeywordLet))),
-                    "const" => Some(Ok(span.with(Token::KeywordConst))),
                     "type" => Some(Ok(span.with(Token::KeywordType))),
                     "with" => Some(Ok(span.with(Token::KeywordWith))),
                     "use" => Some(Ok(span.with(Token::KeywordUse))),
