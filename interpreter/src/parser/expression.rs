@@ -9,7 +9,7 @@ use pbscript_lib::{
     value::Key,
 };
 
-use super::{block::Block, type_hint::TypeName, Parameter, Parse};
+use super::{block::Block, type_name::TypeName, Parameter, Parse};
 
 #[derive(Debug)]
 pub enum Expression {
@@ -31,7 +31,7 @@ pub enum Expression {
 
     Block(Block),
     If {
-        blocks: HashMap<Chunk<Expression>, Chunk<Block>>,
+        blocks: Vec<(Chunk<Expression>, Chunk<Block>)>,
         else_block: Option<Chunk<Block>>,
     },
 
@@ -75,6 +75,7 @@ pub enum Comparison {
 pub enum UnaryOperation {
     BooleanNot,
     Negation,
+    Reference,
 }
 
 // Order for comparisons doesn't matter.
@@ -303,6 +304,33 @@ impl Expression {
         .with(Self::Call { value, args }))
     }
 
+    fn parse_if(source: &mut TokenStream) -> Result<Chunk<Self>> {
+        let start = source.pos();
+        let mut blocks = Vec::new();
+        let mut else_block = None;
+
+        while let Some(Token::KeywordIf) = source.peek_token() {
+            source.next();
+            blocks.push((Expression::parse(source)?, Block::parse(source)?));
+
+            if let Some(Token::KeywordElse) = source.peek_token() {
+                source.next();
+                if let Some(Token::KeywordIf) = source.peek_nth_token(2) {
+                    // skip to next block
+                    continue;
+                } else {
+                    else_block = Some(Block::parse(source)?);
+                }
+            }
+        }
+
+        Ok(Span {
+            start,
+            end: source.pos(),
+        }
+        .with(Self::If { blocks, else_block }))
+    }
+
     fn parse_single(source: &mut TokenStream) -> Result<Chunk<Self>> {
         let mut expr = match source.peek_token() {
             Some(Token::String(_)) => {
@@ -337,6 +365,7 @@ impl Expression {
             }
             Some(Token::BracketOpen) => Self::parse_table(source)?,
             Some(Token::KeywordFunction) => Self::parse_lambda(source)?,
+            Some(Token::KeywordIf) => Self::parse_if(source)?,
 
             Some(Token::Ident(_)) => {
                 let Some(Ok(Chunk {
@@ -354,21 +383,22 @@ impl Expression {
                 span.with(Self::Block(data))
             }
 
-            Some(Token::Exclamation | Token::Sub) => {
+            Some(Token::Exclamation | Token::Sub | Token::KeywordRef) => {
                 let Some(Ok(Chunk { span, data: op })) = source.next() else {
                     unreachable!()
                 };
-                let a = Self::parse_single(source)?;
+                let a = Self::parse_single(source)?.as_box();
 
                 Span {
                     start: span.start,
                     end: a.span.end,
                 }
                 .with(Self::UnaryOp {
-                    a: a.as_box(),
+                    a,
                     op: span.with(match op {
                         Token::Exclamation => UnaryOperation::BooleanNot,
                         Token::Sub => UnaryOperation::Negation,
+                        Token::KeywordRef => UnaryOperation::Reference,
                         _ => unreachable!(),
                     }),
                 })

@@ -8,7 +8,7 @@ use pbscript_lib::{
     token::Token,
 };
 
-use super::{expression::Expression, type_hint::TypeName, Parameter, Parse};
+use super::{expression::Expression, type_name::TypeName, Parameter, Parse};
 
 #[derive(Debug)]
 pub enum Statement {

@@ -11,10 +11,12 @@ pub mod parser;
 pub mod type_check;
 
 pub fn interpret(code: &str) -> Result<()> {
-    let mut warnings: Vec<Warn> = Vec::new();
-
     let mut token_stream = TokenStream::from(code);
     let mut program = Program::parse(&mut token_stream)?;
+
+    let mut warnings: Vec<Warn> = Vec::new();
+
+    dbg!(program);
 
     Ok(())
 }

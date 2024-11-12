@@ -6,13 +6,13 @@ use pbscript_lib::{
     span::{Chunk, Span},
     token::Token,
 };
-use type_hint::TypeName;
+use type_name::TypeName;
 
 pub mod block;
 pub mod expression;
 pub mod program;
 pub mod statement;
-pub mod type_hint;
+pub mod type_name;
 
 pub trait Parse: Sized + Debug {
     fn parse(source: &mut TokenStream) -> Result<Chunk<Self>>;

@@ -8,7 +8,7 @@ use pbscript_lib::{
     value::Key,
 };
 
-use super::{parse_ident, Parse};
+use super::{parse_ident, parse_token, Parse};
 
 #[derive(Debug, Clone)]
 pub enum TypeName {
@@ -17,6 +17,7 @@ pub enum TypeName {
         generics: Vec<Chunk<TypeName>>,
     },
     Table(HashMap<Chunk<Key>, Chunk<TypeName>>),
+    Reference(Chunk<Box<TypeName>>),
 }
 
 impl TypeName {
@@ -147,11 +148,23 @@ impl TypeName {
         }
         .with(Self::Table(pairs)))
     }
+
+    fn parse_reference(source: &mut TokenStream) -> Result<Chunk<Self>> {
+        let span = parse_token(source, Token::KeywordRef, "Expected reference type.")?;
+        let ref_type = Self::parse(source)?;
+
+        Ok(Span {
+            start: span.start,
+            end: ref_type.span.end,
+        }
+        .with(Self::Reference(ref_type.as_box())))
+    }
 }
 
 impl Parse for TypeName {
     fn parse(source: &mut TokenStream) -> Result<Chunk<Self>> {
         match source.peek_token() {
+            Some(Token::KeywordRef) => Self::parse_reference(source),
             Some(Token::BracketOpen) => Self::parse_table(source),
             _ => Self::parse_named(source),
         }

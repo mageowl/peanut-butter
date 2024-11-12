@@ -46,6 +46,6 @@ impl Parse for Program {
             start,
             end: source.pos(),
         }
-        .with(Self { body, scope: None }))
+        .with(Self { body }))
     }
 }

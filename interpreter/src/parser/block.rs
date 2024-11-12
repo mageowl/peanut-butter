@@ -64,10 +64,6 @@ impl Parse for Block {
             start: span.start,
             end: span_end.end,
         }
-        .with(Self {
-            body,
-            tail,
-            scope: None,
-        }))
+        .with(Self { body, tail }))
     }
 }
