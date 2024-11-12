@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use super::{expression::Expression, parse_token, statement::Statement, Parse};
-use crate::{lexer::TokenStream, type_check::scope::Scope};
+use crate::lexer::TokenStream;
 use pbscript_lib::{
     error::{Error, Result},
     span::{Chunk, Span},
@@ -12,7 +12,6 @@ use pbscript_lib::{
 pub struct Block {
     pub body: Vec<Chunk<Statement>>,
     pub tail: Option<Chunk<Box<Expression>>>,
-    pub scope: Option<Rc<Scope>>,
 }
 
 impl Parse for Block {
