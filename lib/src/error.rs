@@ -50,3 +50,8 @@ impl Debug for Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+pub struct Warn {
+    pub source: Span,
+    pub message: String,
+}

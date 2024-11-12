@@ -8,4 +8,4 @@ pbscript-lib = { path = "../lib/" }
 
 [[bin]]
 name = "pbscript"
-path = "main.rs"
+path = "src/main.rs"

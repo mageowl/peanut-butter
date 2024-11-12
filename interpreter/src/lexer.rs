@@ -1,59 +1,13 @@
 use pbscript_lib::{
     error::{Error, Result},
-    span::{Pos, Span, Spanned},
+    span::{Chunk, Pos, Span},
+    token::Token,
 };
 use std::{
     collections::VecDeque,
     iter::Peekable,
     str::{Chars, Lines},
 };
-
-#[derive(Clone, Debug, PartialEq)]
-#[allow(unused)] // DEBUG!
-pub enum Token {
-    /// A keyword or variable name: if, my_var
-    Ident(String),
-
-    /// Number literal: 2.0, 8.5, .62
-    /// All numbers are stored as floats.
-    Number(f64),
-    /// String literal: "hello world", 'Owen L', "{\"method\":\"GET\"}"
-    String(String),
-    /// Boolean literal: true or false
-    Boolean(bool),
-
-    Semicolon,
-    Colon,
-    Comma,
-    Dot,
-    Equals,
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Exclamation,
-    Lt,
-    Gt,
-    LtEqual,
-    GtEqual,
-    BooleanAnd,
-    BooleanOr,
-    Arrow,
-
-    ParenOpen,
-    ParenClose,
-    BracketOpen,
-    BracketClose,
-    BraceOpen,
-    BraceClose,
-
-    KeywordFunction,
-    KeywordMut,
-    KeywordLet,
-    KeywordType,
-    KeywordWith,
-    KeywordUse,
-}
 
 pub struct TokenStream<'a> {
     lines: Lines<'a>,
@@ -257,6 +211,26 @@ impl<'a> TokenStream<'a> {
                     string.parse().expect("Failed to construct number literal"),
                 ))))
             }
+            '-' if self.current_line.peek().is_some_and(|c| c.is_digit(10)) => {
+                let mut string = String::from("-");
+                let mut decimal = false;
+
+                while self.current_line.peek().is_some_and(|c| {
+                    let c_is_decimal = *c == 'n' && !decimal;
+                    decimal = c_is_decimal;
+                    c.is_digit(10) || c_is_decimal
+                }) {
+                    string.push(self.next_char().unwrap());
+                }
+
+                Some(Ok(Span {
+                    start,
+                    end: self.pos,
+                }
+                .with(Token::Number(
+                    string.parse().expect("Failed to construct number literal"),
+                ))))
+            }
 
             pat_ident!() => {
                 let mut string = String::from(char);
@@ -276,6 +250,8 @@ impl<'a> TokenStream<'a> {
                     "type" => Some(Ok(span.with(Token::KeywordType))),
                     "with" => Some(Ok(span.with(Token::KeywordWith))),
                     "use" => Some(Ok(span.with(Token::KeywordUse))),
+                    "if" => Some(Ok(span.with(Token::KeywordIf))),
+                    "else" => Some(Ok(span.with(Token::KeywordElse))),
 
                     "true" => Some(Ok(span.with(Token::Boolean(true)))),
                     "false" => Some(Ok(span.with(Token::Boolean(false)))),
@@ -291,6 +267,30 @@ impl<'a> TokenStream<'a> {
             // >=
             '>' if self.current_line.peek() == Some(&'=') => {
                 double_operator!(GtEqual, start, self)
+            }
+            // ==
+            '=' if self.current_line.peek() == Some(&'=') => {
+                double_operator!(DoubleEqual, start, self)
+            }
+            // !=
+            '!' if self.current_line.peek() == Some(&'=') => {
+                double_operator!(NotEqual, start, self)
+            }
+            // +=
+            '+' if self.current_line.peek() == Some(&'=') => {
+                double_operator!(AddAssign, start, self)
+            }
+            // -=
+            '-' if self.current_line.peek() == Some(&'=') => {
+                double_operator!(SubAssign, start, self)
+            }
+            // *=
+            '*' if self.current_line.peek() == Some(&'=') => {
+                double_operator!(MulAssign, start, self)
+            }
+            // /=
+            '/' if self.current_line.peek() == Some(&'=') => {
+                double_operator!(DivAssign, start, self)
             }
             // &&
             '&' if self.current_line.peek() == Some(&'&') => {
@@ -314,6 +314,8 @@ impl<'a> TokenStream<'a> {
             '-' => operator!(Sub, self.pos),
             '*' => operator!(Mul, self.pos),
             '/' => operator!(Div, self.pos),
+            '!' => operator!(Exclamation, self.pos),
+            '^' => operator!(Caret, self.pos),
             '<' => operator!(Lt, self.pos),
             '>' => operator!(Gt, self.pos),
             '(' => operator!(ParenOpen, self.pos),
@@ -362,7 +364,7 @@ impl<'a> From<&'a str> for TokenStream<'a> {
 }
 
 impl<'a> Iterator for TokenStream<'a> {
-    type Item = Result<Spanned<Token>>;
+    type Item = Result<Chunk<Token>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(next) = self.next.pop_front() {

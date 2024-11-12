@@ -11,10 +11,9 @@ let owen: Person = [
 	with hobbies
 ];
 
-fn greet(name: string) -> none = {
+fn greet(name: string) = {
 	print("Hello, " + name + "!");
 };
 
 greet("World");
-print(greet);
-
+print(greet); // [greet(name: string) -> none]

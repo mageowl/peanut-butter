@@ -3,6 +3,7 @@ use std::{
     fmt::{Debug, Display},
     hash::Hash,
     ops::{Add, AddAssign, Sub, SubAssign},
+    slice::ChunkBy,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -96,8 +97,8 @@ impl Span {
         }
     }
 
-    pub fn with<T>(self, data: T) -> Spanned<T> {
-        Spanned { span: self, data }
+    pub fn with<T>(self, data: T) -> Chunk<T> {
+        Chunk { span: self, data }
     }
 }
 
@@ -108,33 +109,57 @@ impl Display for Span {
 }
 
 #[derive(Debug)]
-pub struct Spanned<T> {
+pub struct Chunk<T> {
     pub span: Span,
     pub data: T,
 }
 
-impl<T> Spanned<T> {
+impl<T> Chunk<T> {
     pub fn new(span: Span, data: T) -> Self {
         Self { span, data }
     }
+
+    pub fn as_box(self) -> Chunk<Box<T>> {
+        Chunk {
+            span: self.span,
+            data: Box::new(self.data),
+        }
+    }
+    pub fn as_ref(&self) -> Chunk<&T> {
+        Chunk {
+            span: self.span,
+            data: &self.data,
+        }
+    }
 }
 
-impl<T: Display> Display for Spanned<T> {
+impl<T: Display> Display for Chunk<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[{span}] {data}", span = self.span, data = self.data)
     }
 }
 
-impl<T: Hash> Hash for Spanned<T> {
+impl<T: Hash> Hash for Chunk<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.data.hash(state);
     }
 }
 
-impl<T: PartialEq> PartialEq for Spanned<T> {
+impl<T: PartialEq> PartialEq for Chunk<T> {
     fn eq(&self, other: &Self) -> bool {
         self.data == other.data && self.span == other.span
     }
 }
 
-impl<T: Eq> Eq for Spanned<T> {}
+impl<T: Eq> Eq for Chunk<T> {}
+
+impl<T: Clone> Clone for Chunk<T> {
+    fn clone(&self) -> Self {
+        Self {
+            span: self.span,
+            data: self.data.clone(),
+        }
+    }
+}
+
+impl<T: Copy> Copy for Chunk<T> {}

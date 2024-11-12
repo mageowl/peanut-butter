@@ -1,0 +1,25 @@
+type Person = [
+    name: str,
+    hobbies: List<string>,
+    age: num,
+];
+
+// Associated constant
+let Person#species = "homo sapien";
+fn Person#greet(self) = {
+    print("Hello, " + self.name + "!");
+};
+mut Person#count = 0;
+
+let owen = [
+    name = "owen",
+    hobbies = ["coding", "gay", "minecraft"],
+    age = 14,
+];
+owen.greet();
+Person#greet(owen);
+
+1: check in table for value
+2: check in specified type for associated value
+ ~ or
+3: check for possible implicit types in scope
