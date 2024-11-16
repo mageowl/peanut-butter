@@ -1,7 +1,12 @@
-use std::collections::HashMap;
+use std::rc::Rc;
+
+use hashbrown::HashMap;
 
 use super::{parse_ident, parse_token};
-use crate::lexer::TokenStream;
+use crate::{
+    lexer::TokenStream,
+    type_check::{Scope, UnlockedScope},
+};
 use pbscript_lib::{
     error::{Error, Result},
     span::{Chunk, Span},
@@ -23,20 +28,26 @@ pub enum Expression {
         body: Chunk<Box<Expression>>,
     },
 
+    Variable(String),
+    Reference(Chunk<Box<Expression>>),
+    Access(Chunk<Box<Expression>>, Chunk<String>),
+    Index(Chunk<Box<Expression>>, Chunk<usize>),
+    DynAccess(Chunk<Box<Expression>>, Chunk<Box<Expression>>),
     Call {
         value: Chunk<Box<Expression>>,
         args: Vec<Chunk<Expression>>,
     },
-    Variable(String),
 
-    Block(Block),
+    Block {
+        data: Block,
+        scope: Option<Rc<Scope>>,
+        unlocked_scope: Option<UnlockedScope>,
+    },
     If {
         blocks: Vec<(Chunk<Expression>, Chunk<Block>)>,
         else_block: Option<Chunk<Block>>,
     },
 
-    Access(Chunk<Box<Expression>>, Chunk<String>),
-    DynAccess(Chunk<Box<Expression>>, Chunk<Box<Expression>>),
     BinaryOp {
         a: Chunk<Box<Expression>>,
         b: Chunk<Box<Expression>>,
@@ -75,7 +86,6 @@ pub enum Comparison {
 pub enum UnaryOperation {
     BooleanNot,
     Negation,
-    Reference,
 }
 
 // Order for comparisons doesn't matter.
@@ -377,13 +387,37 @@ impl Expression {
                 };
                 span.with(Self::Variable(name))
             }
+            Some(Token::KeywordRef) => {
+                let Some(Ok(Chunk { span, .. })) = source.next() else {
+                    unreachable!()
+                };
+                let var = Self::parse_single(source)?;
+
+                match &var.data {
+                    Self::Variable(_) | Self::Access(_, _) | Self::DynAccess(_, _) => Span {
+                        start: span.start,
+                        end: var.span.end,
+                    }
+                    .with(Self::Reference(var.as_box())),
+                    _ => {
+                        return Err(Error::new(
+                            var.span,
+                            "References can only be made to variables and table properties.",
+                        ))
+                    }
+                }
+            }
 
             Some(Token::BraceOpen) => {
                 let Chunk { span, data } = Block::parse(source)?;
-                span.with(Self::Block(data))
+                span.with(Self::Block {
+                    data,
+                    scope: None,
+                    unlocked_scope: None,
+                })
             }
 
-            Some(Token::Exclamation | Token::Sub | Token::KeywordRef) => {
+            Some(Token::Exclamation | Token::Sub) => {
                 let Some(Ok(Chunk { span, data: op })) = source.next() else {
                     unreachable!()
                 };
@@ -398,7 +432,6 @@ impl Expression {
                     op: span.with(match op {
                         Token::Exclamation => UnaryOperation::BooleanNot,
                         Token::Sub => UnaryOperation::Negation,
-                        Token::KeywordRef => UnaryOperation::Reference,
                         _ => unreachable!(),
                     }),
                 })
@@ -447,7 +480,16 @@ impl Expression {
                         start: expr.span.start,
                         end: property.span.end,
                     }
-                    .with(Expression::DynAccess(expr.as_box(), property.as_box()))
+                    .with(match &property.data {
+                        Expression::Number(key) => {
+                            if *key >= 0.0 && !key.is_nan() && key.floor() == *key {
+                                Expression::Index(expr.as_box(), property.span.with(*key as usize))
+                            } else {
+                                return Err(Error::new(property.span, "I can only use round numbers that are zero or more as keys in a table."));
+                            }
+                        }
+                        _ => Expression::DynAccess(expr.as_box(), property.as_box()),
+                    })
                 }
 
                 _ => unreachable!(),

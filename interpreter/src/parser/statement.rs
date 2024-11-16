@@ -1,6 +1,9 @@
+use std::rc::Rc;
+
 use crate::{
     lexer::TokenStream,
     parser::{parse_ident, parse_token},
+    type_check::Scope,
 };
 use pbscript_lib::{
     error::{Error, Result},

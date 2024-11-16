@@ -196,8 +196,8 @@ impl<'a> TokenStream<'a> {
                 let mut decimal = false;
 
                 while self.current_line.peek().is_some_and(|c| {
-                    let c_is_decimal = *c == 'n' && !decimal;
-                    decimal = c_is_decimal;
+                    let c_is_decimal = *c == '.' && !decimal;
+                    decimal |= c_is_decimal;
                     c.is_digit(10) || c_is_decimal
                 }) {
                     string.push(self.next_char().unwrap());

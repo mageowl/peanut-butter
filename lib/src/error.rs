@@ -51,7 +51,23 @@ impl Debug for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Debug)]
 pub struct Warn {
     pub source: Span,
     pub message: String,
+}
+
+impl Warn {
+    pub fn new(span: Span, message: impl ToString) -> Self {
+        Self {
+            source: span,
+            message: message.to_string(),
+        }
+    }
+}
+
+impl Display for Warn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "warning: {}\n  -> {:?}", self.message, self.source)
+    }
 }

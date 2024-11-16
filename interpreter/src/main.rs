@@ -4,8 +4,10 @@ use std::{env::args, fs};
 
 use lexer::TokenStream;
 use parser::{program::Program, Parse};
-use pbscript_lib::error::{Result, Warn};
+use pbscript_lib::error::Result;
+use type_check::UnlockedScope;
 
+pub mod eval;
 pub mod lexer;
 pub mod parser;
 pub mod type_check;
@@ -13,8 +15,10 @@ pub mod type_check;
 pub fn interpret(code: &str) -> Result<()> {
     let mut token_stream = TokenStream::from(code);
     let mut program = Program::parse(&mut token_stream)?;
+    let scope = UnlockedScope::new(&mut program.data, None)?;
+    scope.lock(&mut program.data);
 
-    let mut warnings: Vec<Warn> = Vec::new();
+    evaluate(program);
 
     dbg!(program);
 

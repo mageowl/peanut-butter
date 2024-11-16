@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 use crate::lexer::TokenStream;
 use pbscript_lib::{
@@ -22,7 +22,7 @@ pub enum TypeName {
 
 impl TypeName {
     fn parse_named(source: &mut TokenStream) -> Result<Chunk<Self>> {
-        let name = parse_ident(source, "Expected a type, like string or List<number>.")?;
+        let name = parse_ident(source, "Expected a type, like string or list<number>.")?;
 
         let mut generics = Vec::new();
 

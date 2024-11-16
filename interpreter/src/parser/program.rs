@@ -7,11 +7,12 @@ use pbscript_lib::{
 };
 
 use super::{statement::Statement, Parse};
-use crate::lexer::TokenStream;
+use crate::{lexer::TokenStream, type_check::Scope};
 
 #[derive(Debug)]
 pub struct Program {
     pub body: Vec<Chunk<Statement>>,
+    pub scope: Option<Rc<Scope>>,
 }
 
 impl Parse for Program {
@@ -46,6 +47,6 @@ impl Parse for Program {
             start,
             end: source.pos(),
         }
-        .with(Self { body }))
+        .with(Self { body, scope: None }))
     }
 }

@@ -131,6 +131,12 @@ impl<T> Chunk<T> {
             data: &self.data,
         }
     }
+    pub fn as_mut(&mut self) -> Chunk<&mut T> {
+        Chunk {
+            span: self.span,
+            data: &mut self.data,
+        }
+    }
 }
 
 impl<T: Display> Display for Chunk<T> {
