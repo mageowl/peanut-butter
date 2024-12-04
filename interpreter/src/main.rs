@@ -2,6 +2,7 @@
 
 use std::{env::args, fs};
 
+use eval::{Evaluate, EvaluateChunk};
 use lexer::TokenStream;
 use parser::{program::Program, Parse};
 use pbscript_lib::error::Result;
@@ -15,18 +16,16 @@ pub mod type_check;
 pub fn interpret(code: &str) -> Result<()> {
     let mut token_stream = TokenStream::from(code);
     let mut program = Program::parse(&mut token_stream)?;
+
     let scope = UnlockedScope::new(&mut program.data, None)?;
     scope.lock(&mut program.data);
 
-    evaluate(program);
-
-    dbg!(program);
-
+    program.eval()?;
     Ok(())
 }
 
 fn main() {
-    let path = args().skip(1).next().unwrap();
+    let path = args().nth(1).expect("hi");
     let file = fs::read_to_string(path).expect("failed to open file");
 
     if let Err(error) = interpret(&file) {

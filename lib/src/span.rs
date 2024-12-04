@@ -2,7 +2,7 @@ use std::{
     cmp::Ordering,
     fmt::{Debug, Display},
     hash::Hash,
-    ops::{Add, AddAssign, Sub, SubAssign},
+    ops::{Add, AddAssign, Deref, DerefMut, Sub, SubAssign},
     slice::ChunkBy,
 };
 
@@ -169,3 +169,16 @@ impl<T: Clone> Clone for Chunk<T> {
 }
 
 impl<T: Copy> Copy for Chunk<T> {}
+
+impl<T> Deref for Chunk<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+impl<T> DerefMut for Chunk<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}

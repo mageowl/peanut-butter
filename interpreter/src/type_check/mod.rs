@@ -9,8 +9,12 @@ use pbscript_lib::{
 };
 
 use crate::parser::{
-    block::Block, expression::Expression, program::Program, statement::Statement,
-    type_name::TypeName, Parameter,
+    block::Block,
+    expression::{Comparison, Expression, Operation, UnaryOperation},
+    program::Program,
+    statement::Statement,
+    type_name::TypeName,
+    Parameter,
 };
 
 mod lock;
@@ -356,16 +360,198 @@ impl UnlockedScope {
                     Type::Unit
                 };
 
-                drop(ancestry);
                 *unlocked_scope = Some(scope);
 
                 Ok(tail_ty)
             }
+            Expression::If { blocks, else_block } => {
+                let mut ty = None;
+                for block in blocks {
+                    match self.expression(block.0.as_mut(), parent) {
+                        Ok(Type::Boolean) => (),
+                        Ok(_) => {
+                            return Err(Error::new(
+                                block.0.span,
+                                "If expressions must use a boolean condition.",
+                            ))
+                        }
+                        Err(e) => return Err(e),
+                    }
 
-            _ => todo!(),
+                    let (tail_ty, tail_span) = if let Some(tail) = &mut block.1.data.tail {
+                        (
+                            self.expression(tail.span.with(tail.data.as_mut()), parent)?,
+                            tail.span,
+                        )
+                    } else {
+                        (Type::Unit, block.1.span)
+                    };
+
+                    if let Some(ref b) = ty {
+                        if tail_ty != *b {
+                            return Err(Error::new(tail_span, format!("Previous if conditions returned a type of {}, but this one has a different type.", b.simple_name())));
+                        }
+                    } else {
+                        ty = Some(tail_ty);
+                    }
+                }
+
+                if let Some(block) = else_block {
+                    let (tail_ty, tail_span) = if let Some(tail) = &mut block.data.tail {
+                        (
+                            self.expression(tail.span.with(tail.data.as_mut()), parent)?,
+                            tail.span,
+                        )
+                    } else {
+                        (Type::Unit, block.span)
+                    };
+
+                    if let Some(ref b) = ty {
+                        if tail_ty != *b {
+                            return Err(Error::new(tail_span, format!("Previous if conditions returned a type of {}, but the else block has a different type.", b.simple_name())));
+                        }
+                    } else {
+                        ty = Some(tail_ty);
+                    }
+                }
+
+                // If conditions must have at least 1 block.
+                ty.ok_or_else(|| unreachable!())
+            }
+
+            Expression::BinaryOp {
+                a,
+                b,
+                op:
+                    Chunk {
+                        data:
+                            Operation::Exponentation
+                            | Operation::Multiplication
+                            | Operation::Division
+                            | Operation::Subtraction
+                            | Operation::Addition,
+                        ..
+                    },
+            } => {
+                let a_ty = self.expression(a.span.with(a.data.as_mut()), parent)?;
+                let b_ty = self.expression(b.span.with(b.data.as_mut()), parent)?;
+                if a_ty != Type::Number {
+                    return Err(Error::new(a.span, "Expected a number for arthimatic, but this is is not my brother!!! very sad. :3"));
+                }
+                if b_ty != Type::Number {
+                    return Err(Error::new(b.span, "Expected a number for arthimatic, but this is is not my brother!!! very sad. :3"));
+                }
+
+                Ok(Type::Number)
+            }
+            Expression::BinaryOp {
+                a,
+                b,
+                op:
+                    Chunk {
+                        data: Operation::BooleanOr | Operation::BooleanAnd,
+                        ..
+                    },
+            } => {
+                let a_ty = self.expression(a.span.with(a.data.as_mut()), parent)?;
+                let b_ty = self.expression(b.span.with(b.data.as_mut()), parent)?;
+                if a_ty != Type::Boolean {
+                    return Err(Error::new(a.span, "Expected a boolean for logical operator, but this is is not my brother!!! very sad. :3"));
+                }
+                if b_ty != Type::Boolean {
+                    return Err(Error::new(b.span, "Expected a boolean for logical operator, but this is is not my brother!!! very sad. :3"));
+                }
+
+                Ok(Type::Boolean)
+            }
+            Expression::BinaryOp {
+                a,
+                b,
+                op:
+                    Chunk {
+                        data: Operation::Comparison(Comparison::Equals),
+                        ..
+                    },
+            } => {
+                let a_ty = self.expression(a.span.with(a.data.as_mut()), parent)?;
+                let b_ty = self.expression(b.span.with(b.data.as_mut()), parent)?;
+                if a_ty != b_ty {
+                    return Err(Error::new(
+                        expr.span,
+                        "These two values are of different types, so they will never be equal.",
+                    ));
+                }
+
+                Ok(Type::Boolean)
+            }
+            Expression::BinaryOp {
+                a,
+                b,
+                op:
+                    Chunk {
+                        data: Operation::Comparison(_),
+                        ..
+                    },
+            } => {
+                let a_ty = self.expression(a.span.with(a.data.as_mut()), parent)?;
+                let b_ty = self.expression(b.span.with(b.data.as_mut()), parent)?;
+                if a_ty != Type::Number {
+                    return Err(Error::new(a.span, "Expected a number for inequality (less than or greater than), but this is is not my brother!!! very sad. :3"));
+                }
+                if b_ty != Type::Number {
+                    return Err(Error::new(b.span, "Expected a number for inequality (less than or greater than), but this is is not my brother!!! very sad. :3"));
+                }
+
+                Ok(Type::Boolean)
+            }
+            Expression::BinaryOp {
+                op:
+                    Chunk {
+                        data: Operation::Access,
+                        ..
+                    },
+                ..
+            } => unreachable!(),
+            Expression::UnaryOp {
+                a,
+                op:
+                    Chunk {
+                        data: UnaryOperation::Negation,
+                        ..
+                    },
+            } => {
+                let a_ty = self.expression(a.span.with(a.data.as_mut()), parent)?;
+                if a_ty != Type::Number {
+                    return Err(Error::new(
+                        a.span,
+                        "Expected a number to negate, this value is not of type number",
+                    ));
+                }
+
+                Ok(Type::Number)
+            }
+            Expression::UnaryOp {
+                a,
+                op:
+                    Chunk {
+                        data: UnaryOperation::BooleanNot,
+                        ..
+                    },
+            } => {
+                let a_ty = self.expression(a.span.with(a.data.as_mut()), parent)?;
+                if a_ty != Type::Boolean {
+                    return Err(Error::new(
+                        a.span,
+                        "Expected a boolean to negate, this value is not of type boolean.",
+                    ));
+                }
+
+                Ok(Type::Boolean)
+            }
         }
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn get_type(&self, ty: &TypeName) -> Result<Type> {
         match ty {
             TypeName::Reference(ty) => Ok(Type::Ref(Box::new(self.get_type(ty.data.as_ref())?))),
@@ -422,6 +608,7 @@ impl UnlockedScope {
                     .collect::<Result<HashMap<_, _>>>()?;
 
                 if !map.is_empty() {
+                    #[allow(clippy::unwrap_used)]
                     let (_, item_ty) = map.iter().next().unwrap();
                     if map
                         .iter()

@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
 use super::{Body, Scope, UnlockedScope};
-use crate::parser::{block, expression::Expression, program::Program, statement::Statement};
-use pbscript_lib::{error::Warn, span::Chunk};
+use crate::parser::{expression::Expression, program::Program, statement::Statement};
+use pbscript_lib::error::Warn;
 
 impl UnlockedScope {
     #[allow(private_bounds)]
@@ -77,7 +77,9 @@ fn lock_expression(parent: Rc<Scope>, expression: &mut Expression, warnings: &mu
             unlocked_scope,
             ..
         } => {
-            let mut unlocked_scope = unlocked_scope.take().unwrap();
+            let mut unlocked_scope = unlocked_scope
+                .take()
+                .expect("Tried to lock uninitialized scope");
             warnings.append(&mut unlocked_scope.warnings);
             *scope = Some(unlocked_scope.locked());
         }

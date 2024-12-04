@@ -41,7 +41,7 @@ macro_rules! pat_ident {
     };
 }
 
-impl<'a> TokenStream<'a> {
+impl TokenStream<'_> {
     fn next_line(&mut self) -> bool {
         let Some(line) = self.lines.next() else {
             self.done = true;
@@ -176,10 +176,11 @@ impl<'a> TokenStream<'a> {
                 .with(Token::String(string))))
             }
 
-            '.' if self.current_line.peek().is_some_and(|c| c.is_digit(10)) => {
+            '.' if self.current_line.peek().is_some_and(|c| c.is_ascii_digit()) => {
                 let mut string = String::from(".");
 
-                while self.current_line.peek().is_some_and(|c| c.is_digit(10)) {
+                while self.current_line.peek().is_some_and(|c| c.is_ascii_digit()) {
+                    #[allow(clippy::unwrap_used)]
                     string.push(self.next_char().unwrap());
                 }
 
@@ -191,15 +192,16 @@ impl<'a> TokenStream<'a> {
                     string.parse().expect("Failed to construct number literal"),
                 ))))
             }
-            c if c.is_digit(10) => {
+            c if c.is_ascii_digit() => {
                 let mut string = String::from(c);
                 let mut decimal = false;
 
                 while self.current_line.peek().is_some_and(|c| {
                     let c_is_decimal = *c == '.' && !decimal;
                     decimal |= c_is_decimal;
-                    c.is_digit(10) || c_is_decimal
+                    c.is_ascii_digit() || c_is_decimal
                 }) {
+                    #[allow(clippy::unwrap_used)]
                     string.push(self.next_char().unwrap());
                 }
 
@@ -211,15 +213,16 @@ impl<'a> TokenStream<'a> {
                     string.parse().expect("Failed to construct number literal"),
                 ))))
             }
-            '-' if self.current_line.peek().is_some_and(|c| c.is_digit(10)) => {
+            '-' if self.current_line.peek().is_some_and(|c| c.is_ascii_digit()) => {
                 let mut string = String::from("-");
                 let mut decimal = false;
 
                 while self.current_line.peek().is_some_and(|c| {
                     let c_is_decimal = *c == 'n' && !decimal;
                     decimal = c_is_decimal;
-                    c.is_digit(10) || c_is_decimal
+                    c.is_ascii_digit() || c_is_decimal
                 }) {
+                    #[allow(clippy::unwrap_used)]
                     string.push(self.next_char().unwrap());
                 }
 
@@ -236,6 +239,7 @@ impl<'a> TokenStream<'a> {
                 let mut string = String::from(char);
 
                 while matches!(self.current_line.peek(), Some(pat_ident!())) {
+                    #[allow(clippy::unwrap_used)]
                     string.push(self.next_char().unwrap());
                 }
 
@@ -363,7 +367,7 @@ impl<'a> From<&'a str> for TokenStream<'a> {
     }
 }
 
-impl<'a> Iterator for TokenStream<'a> {
+impl Iterator for TokenStream<'_> {
     type Item = Result<Chunk<Token>>;
 
     fn next(&mut self) -> Option<Self::Item> {
