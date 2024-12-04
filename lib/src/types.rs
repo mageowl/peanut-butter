@@ -1,6 +1,8 @@
-use hashbrown::HashMap;
-
-use crate::value::Key;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemPath {
+    module: String,
+    name: String,
+}
 
 #[derive(Debug, Clone)]
 pub enum Type {
@@ -8,7 +10,6 @@ pub enum Type {
     String,
     Number,
     Boolean,
-    Table(HashMap<Key, Type>),
     Fn {
         parameters: Vec<Type>,
         return_type: Box<Type>,
@@ -16,45 +17,37 @@ pub enum Type {
     Ref(Box<Type>),
     List(Box<Type>),
     Map(Box<Type>),
+    Named(ItemPath),
 }
 
 impl Type {
-    pub fn simple_name(&self) -> &'static str {
+    pub fn simple_name(&self) -> &str {
         match self {
             Type::Unit => "unit",
             Type::String => "string",
             Type::Number => "number",
             Type::Boolean => "boolean",
-            Type::Table(map) if map.is_empty() => "unit",
-            Type::Table(_) => "table",
             Type::Fn { .. } => "function",
             Type::Ref(_) => "reference",
             Type::List(_) => "list",
             Type::Map(_) => "map",
+            Type::Named(path) => &path.name,
         }
     }
 
     pub fn is_unit(&self) -> bool {
-        match self {
-            Type::Unit => true,
-            Type::Table(map) => map.is_empty(),
-            _ => false,
-        }
+        matches!(self, Type::Unit)
     }
 
     pub fn is_list(&self, item_type: &Type) -> bool {
         match self {
             Type::List(t1) => *item_type == **t1,
-            Type::Table(map) => map
-                .iter()
-                .all(|(k, v)| v == item_type && matches!(k, Key::Index(_))),
             _ => false,
         }
     }
     pub fn is_map(&self, item_type: &Type) -> bool {
         match self {
             Type::Map(t1) => *item_type == **t1,
-            Type::Table(map) => map.iter().all(|(_, v)| v == item_type),
             _ => false,
         }
     }
@@ -67,7 +60,6 @@ impl PartialEq for Type {
             (Self::Number, Self::Number) => true,
             (Self::Boolean, Self::Boolean) => true,
             (a, b) if a.is_unit() && b.is_unit() => true,
-            (Self::Table(m1), Self::Table(m2)) => m1 == m2,
             (
                 Self::Fn {
                     parameters: p1,
@@ -81,9 +73,7 @@ impl PartialEq for Type {
             (Self::Ref(t1), Self::Ref(t2)) => t1 == t2,
             (Self::List(t1), Self::List(t2)) => t1 == t2,
             (Self::Map(t1), Self::List(t2)) => t1 == t2,
-
-            (Self::List(a), b) | (b, Self::List(a)) => b.is_list(a),
-            (Self::Map(a), b) | (b, Self::Map(a)) => b.is_map(a),
+            (Self::Named(p1), Self::Named(p2)) => p1 == p2,
 
             _ => false,
         }

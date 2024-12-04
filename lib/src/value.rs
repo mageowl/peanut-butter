@@ -37,10 +37,6 @@ pub enum Value {
 
 impl Value {
     pub fn is_unit(&self) -> bool {
-        match self {
-            Self::Table(map) => map.is_empty(),
-            Self::Unit => true,
-            _ => false,
-        }
+        matches!(self, Self::Unit)
     }
 }

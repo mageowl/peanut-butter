@@ -71,20 +71,27 @@ pub struct Variable {
 #[derive(Debug)]
 pub struct UnlockedScope {
     variables: HashMap<String, Variable>,
+    module_path: String,
     pub warnings: Vec<Warn>,
 }
 
 #[derive(Debug)]
 pub struct Scope {
     pub variables: HashMap<String, Variable>,
+    pub module_path: String,
     pub parent: Option<Rc<Scope>>,
 }
 
 impl UnlockedScope {
     #[allow(private_bounds)]
-    pub fn new(tree: &mut impl Body, parent: Option<&Ancestry<'_>>) -> Result<Self> {
+    pub fn new(
+        tree: &mut impl Body,
+        module_path: String,
+        parent: Option<&Ancestry<'_>>,
+    ) -> Result<Self> {
         let mut s = Self {
             variables: HashMap::new(),
+            module_path,
             warnings: Vec::new(),
         };
 
@@ -103,7 +110,7 @@ impl UnlockedScope {
         parent: Option<&Ancestry<'_>>,
     ) -> Result<Box<Type>> {
         let (return_type, return_type_span) = if let Some(ty) = return_type {
-            (Box::new(self.get_type(&ty.data)?), ty.span)
+            (Box::new(self.get_type(ty.as_ref())?), ty.span)
         } else {
             (Box::new(Type::Unit), Span::char(body.span.start))
         };
@@ -116,13 +123,14 @@ impl UnlockedScope {
                         p.data.name.data.clone(),
                         Variable {
                             mutable: false,
-                            value_type: self.get_type(&p.data.type_hint.data)?,
+                            value_type: self.get_type(p.data.type_hint.as_ref())?,
                             value: None,
                             initialized: true,
                         },
                     ))
                 })
                 .collect::<Result<HashMap<_, _>>>()?,
+            module_path: self.module_path.clone(),
             warnings: Vec::new(),
         };
         let body_type = call_scope.expression(
@@ -157,7 +165,7 @@ impl UnlockedScope {
             } => {
                 let var = Variable {
                     value_type: if let Some(hint) = type_hint {
-                        let ty = self.get_type(&hint.data)?;
+                        let ty = self.get_type(hint.as_ref())?;
 
                         if let Some(value) = value {
                             if self.expression(value.as_mut(), parent)? != ty {
@@ -202,7 +210,7 @@ impl UnlockedScope {
                     value_type: Type::Fn {
                         parameters: parameters
                             .iter()
-                            .map(|p| self.get_type(&p.data.type_hint.data))
+                            .map(|p| self.get_type(p.data.type_hint.as_ref()))
                             .collect::<Result<Vec<_>>>()?,
                         return_type,
                     },
@@ -253,7 +261,7 @@ impl UnlockedScope {
                 Ok(Type::Fn {
                     parameters: parameters
                         .iter()
-                        .map(|p| self.get_type(&p.data.type_hint.data))
+                        .map(|p| self.get_type(p.data.type_hint.as_ref()))
                         .collect::<Result<Vec<_>>>()?,
                     return_type,
                 })
@@ -303,7 +311,7 @@ impl UnlockedScope {
             Expression::Index(target, idx) => {
                 let target_type =
                     self.expression(target.span.with(target.data.as_mut()), parent)?;
-                if let Type::Table(map) = target_type {
+                if let Type::Named(_) = target_type {
                     if let Some(ty) = map.get(&idx.data) {
                         Ok(ty.clone())
                     } else {
@@ -353,7 +361,8 @@ impl UnlockedScope {
             } => {
                 let ancestry = parent.push(&self);
 
-                let mut scope = UnlockedScope::new(data, Some(&ancestry))?;
+                let mut scope =
+                    UnlockedScope::new(data, self.module_path.clone(), Some(&ancestry))?;
                 let tail_ty = if let Some(tail) = &mut data.tail {
                     scope.expression(tail.span.with(tail.data.as_mut()), Some(&ancestry))?
                 } else {
@@ -551,10 +560,29 @@ impl UnlockedScope {
         }
     }
 
+    fn inferred_ty_expr(
+        &mut self,
+        mut expr: Chunk<&mut Expression>,
+        parent: Option<&Ancestry<'_>>,
+        inferred: &Type,
+    ) -> Result<Type> {
+        match expr.data {
+            Expression::Table(map) => match inferred {
+                Type::Named(path) => {
+                    todo!()
+                }
+                _ => self.expression(expr, parent),
+            },
+            _ => self.expression(expr, parent),
+        }
+    }
+
     #[allow(clippy::only_used_in_recursion)]
-    fn get_type(&self, ty: &TypeName) -> Result<Type> {
-        match ty {
-            TypeName::Reference(ty) => Ok(Type::Ref(Box::new(self.get_type(ty.data.as_ref())?))),
+    fn get_type(&self, ty: Chunk<&TypeName>) -> Result<Type> {
+        match ty.data {
+            TypeName::Reference(ty) => Ok(Type::Ref(Box::new(
+                self.get_type(ty.span.with(ty.data.as_ref()))?,
+            ))),
             TypeName::Named { name, generics } => match name.data.as_str() {
                 "str" => match generics.len() {
                     0 => Ok(Type::String),
@@ -582,7 +610,7 @@ impl UnlockedScope {
                         name.span,
                         "Expected a generic type for the built-in list type.",
                     )),
-                    1 => Ok(Type::List(Box::new(self.get_type(&generics[0].data)?))),
+                    1 => Ok(Type::List(Box::new(self.get_type(generics[0].as_ref())?))),
                     _ => Err(Error::new(
                         generics[1].span,
                         "Expected only one generic type for the built-in list type.",
@@ -593,7 +621,7 @@ impl UnlockedScope {
                         name.span,
                         "Expected a generic type for the built-in map type.",
                     )),
-                    1 => Ok(Type::Map(Box::new(self.get_type(&generics[0].data)?))),
+                    1 => Ok(Type::Map(Box::new(self.get_type(generics[0].as_ref())?))),
                     _ => Err(Error::new(
                         generics[1].span,
                         "Expected only one generic type for the built-in map type.",
@@ -601,10 +629,10 @@ impl UnlockedScope {
                 },
                 _ => todo!(),
             },
-            TypeName::Table(map) => {
+            TypeName::Inferred(map) => {
                 let map = map
                     .iter()
-                    .map(|(k, v)| self.get_type(&v.data).map(|v| (k.data.clone(), v)))
+                    .map(|(k, v)| self.get_type(v.as_ref()).map(|v| (k.data.clone(), v)))
                     .collect::<Result<HashMap<_, _>>>()?;
 
                 if !map.is_empty() {
@@ -616,10 +644,10 @@ impl UnlockedScope {
                     {
                         Ok(Type::List(Box::new(item_ty.clone())))
                     } else {
-                        Ok(Type::Table(map))
+                        Err(Error::new(ty.span, "Could not infer type of this unnamed table. Consider giving it an explicit type."))
                     }
                 } else {
-                    Ok(Type::Table(map))
+                    Ok(Type::Unit)
                 }
             }
         }

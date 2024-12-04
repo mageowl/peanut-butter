@@ -16,7 +16,7 @@ pub enum TypeName {
         name: Chunk<String>,
         generics: Vec<Chunk<TypeName>>,
     },
-    Table(HashMap<Chunk<Key>, Chunk<TypeName>>),
+    Inferred(HashMap<Chunk<Key>, Chunk<TypeName>>),
     Reference(Chunk<Box<TypeName>>),
 }
 
@@ -146,7 +146,7 @@ impl TypeName {
             start,
             end: source.pos(),
         }
-        .with(Self::Table(pairs)))
+        .with(Self::Inferred(pairs)))
     }
 
     fn parse_reference(source: &mut TokenStream) -> Result<Chunk<Self>> {
