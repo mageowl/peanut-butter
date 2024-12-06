@@ -1,8 +1,4 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ItemPath {
-    module: String,
-    name: String,
-}
+use crate::module_tree::ItemPath;
 
 #[derive(Debug, Clone)]
 pub enum Type {

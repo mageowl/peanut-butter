@@ -15,6 +15,7 @@ pub enum Token {
     Colon,
     Comma,
     Dot,
+    AtSign,
     Equals,
     Add,
     AddAssign,

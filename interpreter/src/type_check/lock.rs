@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
-use super::{Body, Scope, UnlockedScope};
+use super::{Body, UnlockedScope};
 use crate::parser::{expression::Expression, program::Program, statement::Statement};
-use pbscript_lib::error::Warn;
+use pbscript_lib::{error::Warn, module_tree::Scope};
 
 impl UnlockedScope {
     #[allow(private_bounds)]
