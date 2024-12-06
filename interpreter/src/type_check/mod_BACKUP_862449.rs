@@ -68,8 +68,20 @@ pub struct UnlockedScope {
     pub warnings: Vec<Warn>,
 }
 
+<<<<<<< HEAD
+#[derive(Debug)]
+pub struct Scope {
+    pub variables: HashMap<String, Variable>,
+    pub parent: Option<Rc<Scope>>,
+}
+
+impl UnlockedScope {
+    #[allow(private_bounds)]
+    pub fn new(tree: &mut impl Body, parent: Option<&Ancestry<'_>>) -> Result<Self> {
+=======
 impl UnlockedScope {
     pub fn new(tree: &mut impl Body, parent: &Ancestry<'_>) -> Result<Self> {
+>>>>>>> 487ec14 (modules)
         let mut s = Self {
             variables: HashMap::new(),
             warnings: Vec::new(),
@@ -301,8 +313,13 @@ impl UnlockedScope {
             Expression::Index(target, idx) => {
                 let target_type =
                     self.expression(target.span.with(target.data.as_mut()), parent)?;
+<<<<<<< HEAD
                 if let Type::Table(map) = target_type {
                     if let Some(ty) = map.get(&idx.data) {
+=======
+                if let Type::Named(_) = target_type {
+                    /*if let Some(ty) = map.get(&idx.data) {
+>>>>>>> 487ec14 (modules)
                         Ok(ty.clone())
                     } else {
                         Err(Error::new(
@@ -352,7 +369,11 @@ impl UnlockedScope {
             } => {
                 let ancestry = parent.push(&self);
 
+<<<<<<< HEAD
+                let mut scope = UnlockedScope::new(data, Some(&ancestry))?;
+=======
                 let mut scope = UnlockedScope::new(data, &ancestry)?;
+>>>>>>> 487ec14 (modules)
                 let tail_ty = if let Some(tail) = &mut data.tail {
                     scope.expression(tail.span.with(tail.data.as_mut()), &ancestry)?
                 } else {
@@ -550,6 +571,26 @@ impl UnlockedScope {
         }
     }
 
+<<<<<<< HEAD
+=======
+    fn inferred_ty_expr(
+        &mut self,
+        expr: Chunk<&mut Expression>,
+        parent: &Ancestry<'_>,
+        inferred: &Type,
+    ) -> Result<Type> {
+        match expr.data {
+            Expression::Table(map) => match inferred {
+                Type::Named(path) => {
+                    todo!()
+                }
+                _ => self.expression(expr, parent),
+            },
+            _ => self.expression(expr, parent),
+        }
+    }
+
+>>>>>>> 487ec14 (modules)
     #[allow(clippy::only_used_in_recursion)]
     fn get_type(&self, ty: &TypeName) -> Result<Type> {
         match ty {

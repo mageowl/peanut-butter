@@ -1,11 +1,11 @@
 use hashbrown::HashMap;
+use std::{cell::RefCell, rc::Rc};
 
 use pbscript_lib::{
     error::{Error, Result, Warn},
-    module_tree::{Module, ModuleTree, Variable},
     span::{Chunk, Span},
     types::Type,
-    value::Key,
+    value::{Key, Value},
 };
 
 use crate::parser::{
@@ -34,44 +34,64 @@ impl Body for Block {
     }
 }
 
-pub enum Ancestry<'a> {
-    Scope {
-        parent: &'a Ancestry<'a>,
-        scope: &'a UnlockedScope,
-    },
-    Module {
-        tree: &'a mut ModuleTree,
-        module: &'a mut Module,
-    },
+pub struct Ancestry<'a> {
+    parent: Option<&'a Ancestry<'a>>,
+    scope: &'a UnlockedScope,
 }
 
-impl<'a> Ancestry<'a> {
+impl Ancestry<'_> {
     fn get_var(&self, name: &String) -> Option<&Variable> {
-        match self {
-            Self::Scope { parent, scope } => {
-                scope.variables.get(name).or_else(|| parent.get_var(name))
-            }
-            Self::Module { .. } => None,
-        }
+        self.scope
+            .variables
+            .get(name)
+            .or_else(|| self.parent.map(|p| p.get_var(name))?)
     }
+}
+
+trait AncestryOption<'a> {
+    fn push(&'a self, scope: &'a UnlockedScope) -> Ancestry<'a>;
+}
+impl<'a> AncestryOption<'a> for Option<&Ancestry<'a>> {
     fn push(&'a self, scope: &'a UnlockedScope) -> Ancestry<'a> {
-        Ancestry::Scope {
-            parent: self,
+        Ancestry {
+            parent: *self,
             scope,
         }
     }
 }
 
 #[derive(Debug)]
+pub struct Variable {
+    value_type: Type,
+    value: Option<Rc<RefCell<Value>>>,
+    initialized: bool,
+    mutable: bool,
+}
+
+#[derive(Debug)]
 pub struct UnlockedScope {
     variables: HashMap<String, Variable>,
+    module_path: String,
     pub warnings: Vec<Warn>,
 }
 
+#[derive(Debug)]
+pub struct Scope {
+    pub variables: HashMap<String, Variable>,
+    pub module_path: String,
+    pub parent: Option<Rc<Scope>>,
+}
+
 impl UnlockedScope {
-    pub fn new(tree: &mut impl Body, parent: &Ancestry<'_>) -> Result<Self> {
+    #[allow(private_bounds)]
+    pub fn new(
+        tree: &mut impl Body,
+        module_path: String,
+        parent: Option<&Ancestry<'_>>,
+    ) -> Result<Self> {
         let mut s = Self {
             variables: HashMap::new(),
+            module_path,
             warnings: Vec::new(),
         };
 
@@ -87,10 +107,10 @@ impl UnlockedScope {
         body: Chunk<&mut Expression>,
         return_type: &Option<Chunk<TypeName>>,
         parameters: &Vec<Chunk<Parameter>>,
-        parent: &Ancestry<'_>,
+        parent: Option<&Ancestry<'_>>,
     ) -> Result<Box<Type>> {
         let (return_type, return_type_span) = if let Some(ty) = return_type {
-            (Box::new(self.get_type(&ty.data)?), ty.span)
+            (Box::new(self.get_type(ty.as_ref())?), ty.span)
         } else {
             (Box::new(Type::Unit), Span::char(body.span.start))
         };
@@ -103,16 +123,23 @@ impl UnlockedScope {
                         p.data.name.data.clone(),
                         Variable {
                             mutable: false,
-                            value_type: self.get_type(&p.data.type_hint.data)?,
+                            value_type: self.get_type(p.data.type_hint.as_ref())?,
                             value: None,
                             initialized: true,
                         },
                     ))
                 })
                 .collect::<Result<HashMap<_, _>>>()?,
+            module_path: self.module_path.clone(),
             warnings: Vec::new(),
         };
-        let body_type = call_scope.expression(body, &parent.push(&self))?;
+        let body_type = call_scope.expression(
+            body,
+            Some(&Ancestry {
+                parent,
+                scope: &self,
+            }),
+        )?;
 
         if body_type != *return_type {
             Err(Error::new(
@@ -124,7 +151,11 @@ impl UnlockedScope {
         }
     }
 
-    fn statement(&mut self, statement: &mut Chunk<Statement>, parent: &Ancestry<'_>) -> Result<()> {
+    fn statement(
+        &mut self,
+        statement: &mut Chunk<Statement>,
+        parent: Option<&Ancestry<'_>>,
+    ) -> Result<()> {
         match &mut statement.data {
             Statement::DefVariable {
                 mutable,
@@ -134,7 +165,7 @@ impl UnlockedScope {
             } => {
                 let var = Variable {
                     value_type: if let Some(hint) = type_hint {
-                        let ty = self.get_type(&hint.data)?;
+                        let ty = self.get_type(hint.as_ref())?;
 
                         if let Some(value) = value {
                             if self.expression(value.as_mut(), parent)? != ty {
@@ -179,7 +210,7 @@ impl UnlockedScope {
                     value_type: Type::Fn {
                         parameters: parameters
                             .iter()
-                            .map(|p| self.get_type(&p.data.type_hint.data))
+                            .map(|p| self.get_type(p.data.type_hint.as_ref()))
                             .collect::<Result<Vec<_>>>()?,
                         return_type,
                     },
@@ -201,41 +232,20 @@ impl UnlockedScope {
     fn expression(
         &mut self,
         mut expr: Chunk<&mut Expression>,
-        parent: &Ancestry<'_>,
+        parent: Option<&Ancestry<'_>>,
     ) -> Result<Type> {
         match &mut expr.data {
             Expression::String(_) => Ok(Type::String),
             Expression::Number(_) => Ok(Type::Number),
             Expression::Boolean(_) => Ok(Type::Number),
-            Expression::Table(map) => {
-                if map.is_empty() {
-                    Ok(Type::Unit)
-                } else {
-                    let ty_map = map
-                        .iter_mut()
-                        .map(|(k, v)| Ok((k.data, self.expression(v.as_mut(), parent)?)))
-                        .collect::<Result<HashMap<_, _>>>()?;
-
-                    #[allow(clippy::unwrap_used)]
-                    let (_, item_ty) = ty_map.iter().next().unwrap();
-                    if ty_map
-                        .iter()
-                        .all(|(k, v)| v == item_ty && matches!(k, Key::Index(_)))
-                    {
-                        Ok(Type::List(Box::new(item_ty.clone())))
-                    } else {
-                        Err(Error::new(expr.span, "Could not infer type of this unnamed table. Consider giving it an explicit type."))
-                    }
-                    /*Ok(Type::Table(
-                        map.iter_mut()
-                            .map(|(k, v)| {
-                                self.expression(v.as_mut(), parent)
-                                    .map(|v| (k.data.clone(), v))
-                            })
-                            .collect::<Result<HashMap<_, _>>>()?,
-                    ))*/
-                }
-            }
+            Expression::Table(map) => Ok(Type::Table(
+                map.iter_mut()
+                    .map(|(k, v)| {
+                        self.expression(v.as_mut(), parent)
+                            .map(|v| (k.data.clone(), v))
+                    })
+                    .collect::<Result<HashMap<_, _>>>()?,
+            )),
             Expression::Lambda {
                 parameters,
                 return_type,
@@ -251,14 +261,14 @@ impl UnlockedScope {
                 Ok(Type::Fn {
                     parameters: parameters
                         .iter()
-                        .map(|p| self.get_type(&p.data.type_hint.data))
+                        .map(|p| self.get_type(p.data.type_hint.as_ref()))
                         .collect::<Result<Vec<_>>>()?,
                     return_type,
                 })
             }
 
             Expression::Variable(name) => {
-                if let Some(var) = self.variables.get(name).or_else(|| parent.get_var(name)) {
+                if let Some(var) = self.variables.get(name).or_else(|| parent?.get_var(name)) {
                     if var.initialized {
                         Ok(var.value_type.clone())
                     } else {
@@ -301,7 +311,7 @@ impl UnlockedScope {
             Expression::Index(target, idx) => {
                 let target_type =
                     self.expression(target.span.with(target.data.as_mut()), parent)?;
-                if let Type::Table(map) = target_type {
+                if let Type::Named(_) = target_type {
                     if let Some(ty) = map.get(&idx.data) {
                         Ok(ty.clone())
                     } else {
@@ -309,8 +319,7 @@ impl UnlockedScope {
                             idx.span,
                             format!("Property {} does not exist on this table.", idx.data),
                         ))
-                    }*/
-                    todo!()
+                    }
                 } else {
                     Err(Error::new(
                         target.span,
@@ -352,9 +361,10 @@ impl UnlockedScope {
             } => {
                 let ancestry = parent.push(&self);
 
-                let mut scope = UnlockedScope::new(data, &ancestry)?;
+                let mut scope =
+                    UnlockedScope::new(data, self.module_path.clone(), Some(&ancestry))?;
                 let tail_ty = if let Some(tail) = &mut data.tail {
-                    scope.expression(tail.span.with(tail.data.as_mut()), &ancestry)?
+                    scope.expression(tail.span.with(tail.data.as_mut()), Some(&ancestry))?
                 } else {
                     Type::Unit
                 };
@@ -550,10 +560,29 @@ impl UnlockedScope {
         }
     }
 
+    fn inferred_ty_expr(
+        &mut self,
+        mut expr: Chunk<&mut Expression>,
+        parent: Option<&Ancestry<'_>>,
+        inferred: &Type,
+    ) -> Result<Type> {
+        match expr.data {
+            Expression::Table(map) => match inferred {
+                Type::Named(path) => {
+                    todo!()
+                }
+                _ => self.expression(expr, parent),
+            },
+            _ => self.expression(expr, parent),
+        }
+    }
+
     #[allow(clippy::only_used_in_recursion)]
-    fn get_type(&self, ty: &TypeName) -> Result<Type> {
-        match ty {
-            TypeName::Reference(ty) => Ok(Type::Ref(Box::new(self.get_type(ty.data.as_ref())?))),
+    fn get_type(&self, ty: Chunk<&TypeName>) -> Result<Type> {
+        match ty.data {
+            TypeName::Reference(ty) => Ok(Type::Ref(Box::new(
+                self.get_type(ty.span.with(ty.data.as_ref()))?,
+            ))),
             TypeName::Named { name, generics } => match name.data.as_str() {
                 "str" => match generics.len() {
                     0 => Ok(Type::String),
@@ -581,7 +610,7 @@ impl UnlockedScope {
                         name.span,
                         "Expected a generic type for the built-in list type.",
                     )),
-                    1 => Ok(Type::List(Box::new(self.get_type(&generics[0].data)?))),
+                    1 => Ok(Type::List(Box::new(self.get_type(generics[0].as_ref())?))),
                     _ => Err(Error::new(
                         generics[1].span,
                         "Expected only one generic type for the built-in list type.",
@@ -592,7 +621,7 @@ impl UnlockedScope {
                         name.span,
                         "Expected a generic type for the built-in map type.",
                     )),
-                    1 => Ok(Type::Map(Box::new(self.get_type(&generics[0].data)?))),
+                    1 => Ok(Type::Map(Box::new(self.get_type(generics[0].as_ref())?))),
                     _ => Err(Error::new(
                         generics[1].span,
                         "Expected only one generic type for the built-in map type.",
@@ -600,10 +629,10 @@ impl UnlockedScope {
                 },
                 _ => todo!(),
             },
-            TypeName::Table(map) => {
+            TypeName::Inferred(map) => {
                 let map = map
                     .iter()
-                    .map(|(k, v)| self.get_type(&v.data).map(|v| (k.data.clone(), v)))
+                    .map(|(k, v)| self.get_type(v.as_ref()).map(|v| (k.data.clone(), v)))
                     .collect::<Result<HashMap<_, _>>>()?;
 
                 if !map.is_empty() {
@@ -615,10 +644,10 @@ impl UnlockedScope {
                     {
                         Ok(Type::List(Box::new(item_ty.clone())))
                     } else {
-                        Ok(Type::Table(map))
+                        Err(Error::new(ty.span, "Could not infer type of this unnamed table. Consider giving it an explicit type."))
                     }
                 } else {
-                    Ok(Type::Table(map))
+                    Ok(Type::Unit)
                 }
             }
         }

@@ -1,6 +1,4 @@
-use hashbrown::HashMap;
-
-use crate::value::Key;
+use crate::module_tree::ItemPath;
 
 #[derive(Debug, Clone)]
 pub enum Type {

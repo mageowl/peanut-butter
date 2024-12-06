@@ -1,11 +1,17 @@
+use "";
+
 type Person = [
 	name: string,
 	age: number,
-	hobbies: List<string>,
+	hobbies: list<string>,
 ];
 
-let hobbies = ["coding", "gay", "minecraft"]; // Implicitly List<string>
-let owen: Person = [
+fn Person#greet(self, name: string) = {
+	print("Hello, " name "! I am " self.name);
+};
+
+let hobbies = ["coding", "gay", "minecraft"]; // Implicitly list<string>
+let owen = Person#[
 	name = "owen",
 	age = 14,
 	with hobbies
