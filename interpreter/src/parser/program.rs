@@ -1,13 +1,13 @@
 use std::rc::Rc;
 
+use super::{statement::Statement, Parse};
+use crate::lexer::TokenStream;
 use pbscript_lib::{
     error::{Error, Result},
+    module_tree::Scope,
     span::{Chunk, Span},
     token::Token,
 };
-
-use super::{statement::Statement, Parse};
-use crate::{lexer::TokenStream, type_check::Scope};
 
 #[derive(Debug)]
 pub struct Program {
@@ -24,7 +24,7 @@ impl Parse for Program {
         loop {
             if trailing_delimiter {
                 trailing_delimiter = false;
-                if let Some(_) = source.peek() {
+                if source.peek().is_some() {
                     body.push(Statement::parse(source)?);
                 } else {
                     break;

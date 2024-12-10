@@ -1,10 +1,5 @@
-use std::rc::Rc;
-
 use super::{expression::Expression, parse_token, statement::Statement, Parse};
-use crate::{
-    lexer::TokenStream,
-    type_check::{Scope, UnlockedScope},
-};
+use crate::lexer::TokenStream;
 use pbscript_lib::{
     error::{Error, Result},
     span::{Chunk, Span},

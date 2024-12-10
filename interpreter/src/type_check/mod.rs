@@ -1,8 +1,10 @@
+use std::{cell::RefCell, rc::Rc};
+
 use hashbrown::HashMap;
 
 use pbscript_lib::{
     error::{Error, Result, Warn},
-    module_tree::{Module, ModuleTree, Variable},
+    module_tree::{ExternalModule, LocalModule, ModuleTree, Variable},
     span::{Chunk, Span},
     types::Type,
     value::Key,
@@ -17,6 +19,7 @@ use crate::parser::{
     Parameter,
 };
 
+pub mod function;
 mod lock;
 
 trait Body {
@@ -41,7 +44,8 @@ pub enum Ancestry<'a> {
     },
     Module {
         tree: &'a mut ModuleTree,
-        module: &'a mut Module,
+        module: &'a mut LocalModule,
+        prelude: &'a ExternalModule,
     },
 }
 
@@ -51,7 +55,7 @@ impl<'a> Ancestry<'a> {
             Self::Scope { parent, scope } => {
                 scope.variables.get(name).or_else(|| parent.get_var(name))
             }
-            Self::Module { .. } => None,
+            Self::Module { prelude, .. } => prelude.variables.get(name),
         }
     }
     fn push(&'a self, scope: &'a UnlockedScope) -> Ancestry<'a> {
@@ -69,6 +73,7 @@ pub struct UnlockedScope {
 }
 
 impl UnlockedScope {
+    #[expect(private_bounds)]
     pub fn new(tree: &mut impl Body, parent: &Ancestry<'_>) -> Result<Self> {
         let mut s = Self {
             variables: HashMap::new(),
@@ -86,7 +91,7 @@ impl UnlockedScope {
         &mut self,
         body: Chunk<&mut Expression>,
         return_type: &Option<Chunk<TypeName>>,
-        parameters: &Vec<Chunk<Parameter>>,
+        parameters: &[Chunk<Parameter>],
         parent: &Ancestry<'_>,
     ) -> Result<Box<Type>> {
         let (return_type, return_type_span) = if let Some(ty) = return_type {
@@ -104,7 +109,7 @@ impl UnlockedScope {
                         Variable {
                             mutable: false,
                             value_type: self.get_type(&p.data.type_hint.data)?,
-                            value: None,
+                            value: Rc::new(RefCell::new(None)),
                             initialized: true,
                         },
                     ))
@@ -112,7 +117,7 @@ impl UnlockedScope {
                 .collect::<Result<HashMap<_, _>>>()?,
             warnings: Vec::new(),
         };
-        let body_type = call_scope.expression(body, &parent.push(&self))?;
+        let body_type = call_scope.expression(body, &parent.push(self))?;
 
         if body_type != *return_type {
             Err(Error::new(
@@ -157,7 +162,7 @@ impl UnlockedScope {
                             ),
                         ));
                     },
-                    value: None,
+                    value: Rc::new(RefCell::new(None)),
                     initialized: value.is_some(),
                     mutable: *mutable,
                 };
@@ -170,12 +175,17 @@ impl UnlockedScope {
                 return_type,
                 body,
             } => {
-                let return_type = self.fn_def(body.as_mut(), return_type, parameters, parent)?;
+                let return_type = self.fn_def(
+                    body.as_mut().expect("Already locked.").as_mut(),
+                    return_type,
+                    parameters,
+                    parent,
+                )?;
 
                 let var = Variable {
                     mutable: *mutable,
                     initialized: true,
-                    value: None,
+                    value: Rc::new(RefCell::new(None)),
                     value_type: Type::Fn {
                         parameters: parameters
                             .iter()
@@ -184,6 +194,7 @@ impl UnlockedScope {
                         return_type,
                     },
                 };
+
                 self.variables.insert(name.data.clone(), var);
             }
             Statement::Expression(expr) => {
@@ -211,29 +222,14 @@ impl UnlockedScope {
                 if map.is_empty() {
                     Ok(Type::Unit)
                 } else {
-                    let ty_map = map
-                        .iter_mut()
-                        .map(|(k, v)| Ok((k.data, self.expression(v.as_mut(), parent)?)))
-                        .collect::<Result<HashMap<_, _>>>()?;
-
-                    #[allow(clippy::unwrap_used)]
-                    let (_, item_ty) = ty_map.iter().next().unwrap();
-                    if ty_map
-                        .iter()
-                        .all(|(k, v)| v == item_ty && matches!(k, Key::Index(_)))
-                    {
-                        Ok(Type::List(Box::new(item_ty.clone())))
-                    } else {
-                        Err(Error::new(expr.span, "Could not infer type of this unnamed table. Consider giving it an explicit type."))
-                    }
-                    /*Ok(Type::Table(
+                    Ok(Type::Table(
                         map.iter_mut()
                             .map(|(k, v)| {
                                 self.expression(v.as_mut(), parent)
                                     .map(|v| (k.data.clone(), v))
                             })
                             .collect::<Result<HashMap<_, _>>>()?,
-                    ))*/
+                    ))
                 }
             }
             Expression::Lambda {
@@ -309,8 +305,7 @@ impl UnlockedScope {
                             idx.span,
                             format!("Property {} does not exist on this table.", idx.data),
                         ))
-                    }*/
-                    todo!()
+                    }
                 } else {
                     Err(Error::new(
                         target.span,
@@ -350,7 +345,7 @@ impl UnlockedScope {
                 unlocked_scope,
                 ..
             } => {
-                let ancestry = parent.push(&self);
+                let ancestry = parent.push(self);
 
                 let mut scope = UnlockedScope::new(data, &ancestry)?;
                 let tail_ty = if let Some(tail) = &mut data.tail {
@@ -547,6 +542,36 @@ impl UnlockedScope {
 
                 Ok(Type::Boolean)
             }
+            Expression::AsType { expr, ty } => {
+                let ty = self.get_type(ty)?;
+                let expr_ty =
+                    self.inferred_type_expr(expr.span.with(&mut expr.data), &ty, parent)?;
+                if expr_ty != ty {
+                    return Err(Error::new(
+                        expr.span,
+                        format!(
+                            "Cannot a {} to a {}.",
+                            expr_ty.simple_name(),
+                            ty.simple_name()
+                        ),
+                    ));
+                }
+                todo!()
+            }
+        }
+    }
+
+    fn inferred_type_expr(
+        &mut self,
+        expr: Chunk<&mut Expression>,
+        ty: &Type,
+        parent: &Ancestry<'_>,
+    ) -> Result<Type> {
+        match expr.data {
+            Expression::Table(map) => {
+                todo!()
+            }
+            _ => self.expression(expr, parent),
         }
     }
 

@@ -1,4 +1,4 @@
-use "";
+use "std/io#read_line";
 
 type Person = [
 	name: string,
@@ -11,7 +11,7 @@ fn Person#greet(self, name: string) = {
 };
 
 let hobbies = ["coding", "gay", "minecraft"]; // Implicitly list<string>
-let owen = Person#[
+let owen = Person: [
 	name = "owen",
 	age = 14,
 	with hobbies
@@ -22,4 +22,10 @@ fn greet(name: string) = {
 };
 
 greet("World");
-print(greet); // [greet(name: string) -> none]
+
+mut name = "";
+print
+read_line(ref name);
+owen.greet(name);
+
+print(greet); // [fn (name: string) -> none]

@@ -1,4 +1,8 @@
-use crate::module_tree::ItemPath;
+use std::{cell::RefCell, rc::Rc};
+
+use hashbrown::HashMap;
+
+use crate::value::{Key, Value};
 
 #[derive(Debug, Clone)]
 pub enum Type {
@@ -87,3 +91,24 @@ impl PartialEq for Type {
         }
     }
 }
+
+pub trait IntoType: From<Value> + Into<Value> {
+    fn into_type() -> Type;
+}
+
+macro_rules! impl_into_type {
+    ($rust_ty: ty => $pb_ty: expr, $($generic: ident),*) => {
+        impl<$($generic: IntoType),*> IntoType for $rust_ty {
+            fn into_type() -> Type {
+                $pb_ty
+            }
+        }
+    };
+}
+
+impl_into_type!(() => Type::Unit,);
+impl_into_type!(String => Type::String,);
+impl_into_type!(f64 => Type::Number,);
+impl_into_type!(bool => Type::Boolean,);
+impl_into_type!(Vec<T> => Type::List(Box::new(T::into_type())), T);
+impl_into_type!(HashMap<Key, T> => Type::Map(Box::new(T::into_type())), T);

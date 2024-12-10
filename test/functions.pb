@@ -1,5 +1,6 @@
-fn greet(name: string) = {
-	print("Hello, " + name)
+fn greet(name: str) = {
+	print("Hello, " name);
 };
 
+greet("world");
 print("peanut butter");

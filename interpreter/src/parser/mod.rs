@@ -24,9 +24,9 @@ fn parse_ident(source: &mut TokenStream, error_message: impl ToString) -> Result
             data: Token::Ident(name),
             span,
         })) => Ok(span.with(name)),
-        Some(Ok(Chunk { span, .. })) => return Err(Error::new(span, error_message)),
-        Some(Err(err)) => return Err(err),
-        None => return Err(Error::new(Span::char(source.pos()), error_message)),
+        Some(Ok(Chunk { span, .. })) => Err(Error::new(span, error_message)),
+        Some(Err(err)) => Err(err),
+        None => Err(Error::new(Span::char(source.pos()), error_message)),
     }
 }
 

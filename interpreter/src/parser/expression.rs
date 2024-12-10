@@ -1,14 +1,12 @@
-use std::rc::Rc;
+use std::{boxed, rc::Rc};
 
 use hashbrown::HashMap;
 
 use super::{parse_ident, parse_token};
-use crate::{
-    lexer::TokenStream,
-    type_check::{Scope, UnlockedScope},
-};
+use crate::{lexer::TokenStream, type_check::UnlockedScope};
 use pbscript_lib::{
     error::{Error, Result},
+    module_tree::Scope,
     span::{Chunk, Span},
     token::Token,
     value::Key,
@@ -57,6 +55,10 @@ pub enum Expression {
         a: Chunk<Box<Expression>>,
         op: Chunk<UnaryOperation>,
     },
+    AsType {
+        expr: Chunk<Box<Expression>>,
+        ty: Chunk<TypeName>,
+    },
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
@@ -90,8 +92,8 @@ pub enum UnaryOperation {
 
 // Order for comparisons doesn't matter.
 impl PartialOrd for Comparison {
-    fn partial_cmp(&self, _other: &Self) -> Option<std::cmp::Ordering> {
-        Some(std::cmp::Ordering::Equal)
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 impl Ord for Comparison {
@@ -453,7 +455,9 @@ impl Expression {
             }
         };
 
-        while let Some(Token::Dot | Token::BracketOpen | Token::ParenOpen) = source.peek_token() {
+        while let Some(Token::Dot | Token::BracketOpen | Token::ParenOpen | Token::KeywordAs) =
+            source.peek_token()
+        {
             #[allow(clippy::unwrap_used)]
             match source.next().unwrap()?.data {
                 Token::ParenOpen => {
@@ -489,6 +493,20 @@ impl Expression {
                             }
                         }
                         _ => Expression::DynAccess(expr.as_box(), property.as_box()),
+                    })
+                }
+                Token::KeywordAs => {
+                    dbg!("hi2");
+                    let ty = TypeName::parse(source)?;
+                    dbg!(&ty);
+
+                    expr = Span {
+                        start: expr.span.start,
+                        end: ty.span.end,
+                    }
+                    .with(Expression::AsType {
+                        expr: expr.as_box(),
+                        ty,
                     })
                 }
 

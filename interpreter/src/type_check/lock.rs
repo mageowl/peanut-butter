@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
-use super::{Body, UnlockedScope};
+use super::{function::Function, Body, UnlockedScope};
 use crate::parser::{expression::Expression, program::Program, statement::Statement};
-use pbscript_lib::{error::Warn, module_tree::Scope};
+use pbscript_lib::{error::Warn, module_tree::Scope, value::Value};
 
 impl UnlockedScope {
     #[allow(private_bounds)]
@@ -16,14 +16,8 @@ impl UnlockedScope {
             lock_statement(rc.clone(), &mut item.data, &mut self.warnings);
         }
 
+        tree.scope = Some(rc);
         self.warnings
-    }
-
-    fn locked(self) -> Rc<Scope> {
-        Rc::new(Scope {
-            variables: self.variables,
-            parent: None,
-        })
     }
 }
 
@@ -41,8 +35,22 @@ fn lock_statement(parent: Rc<Scope>, statement: &mut Statement, warnings: &mut V
                 lock_expression(parent, &mut value.data, warnings);
             }
         }
-        Statement::DefFunction { body, .. } => {
-            lock_expression(parent, &mut body.data, warnings);
+        Statement::DefFunction {
+            body,
+            name,
+            parameters,
+            ..
+        } => {
+            let mut body_expr = body.take().expect("already locked");
+
+            lock_expression(parent.clone(), &mut body_expr.data, warnings);
+            let fn_ref = Value::Function(Rc::new(Function {
+                body: body_expr,
+                parameters: parameters.iter().map(|p| p.name.data.clone()).collect(),
+                parent: parent.clone(),
+                name: name.data.clone(),
+            }));
+            parent.variables[&name.data].value.replace(Some(fn_ref));
         }
         Statement::Expression(expr) => lock_expression(parent, expr, warnings),
     }
@@ -81,7 +89,10 @@ fn lock_expression(parent: Rc<Scope>, expression: &mut Expression, warnings: &mu
                 .take()
                 .expect("Tried to lock uninitialized scope");
             warnings.append(&mut unlocked_scope.warnings);
-            *scope = Some(unlocked_scope.locked());
+            *scope = Some(Rc::new(Scope {
+                variables: unlocked_scope.variables,
+                parent: None,
+            }));
         }
         Expression::If { blocks, else_block } => {
             for (cond, block) in blocks {

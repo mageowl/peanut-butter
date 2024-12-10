@@ -1,9 +1,6 @@
-use std::rc::Rc;
-
 use crate::{
     lexer::TokenStream,
     parser::{parse_ident, parse_token},
-    type_check::Scope,
 };
 use pbscript_lib::{
     error::{Error, Result},
@@ -26,7 +23,7 @@ pub enum Statement {
         name: Chunk<String>,
         parameters: Vec<Chunk<Parameter>>,
         return_type: Option<Chunk<TypeName>>,
-        body: Chunk<Expression>,
+        body: Option<Chunk<Expression>>,
     },
     DefType {
         name: Chunk<String>,
@@ -146,7 +143,7 @@ impl Statement {
             name,
             parameters: args,
             return_type,
-            body,
+            body: Some(body),
         }))
     }
 
