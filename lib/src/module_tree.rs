@@ -19,41 +19,98 @@ pub struct ItemPath {
     pub name: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Variable {
     pub value_type: Type,
-    pub value: Rc<RefCell<Option<Value>>>,
+    pub value: Rc<RefCell<Value>>,
     pub initialized: bool,
     pub mutable: bool,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone)]
+pub struct Constant {
+    pub value_type: Type,
+    pub value: Value,
+}
+
+pub trait Item {
+    fn get_type(&self) -> &Type;
+    fn get_initialized(&self) -> bool;
+    fn get_mutable(&self) -> bool;
+    fn get(&self) -> Value;
+    fn get_ref(&self) -> Option<Rc<RefCell<Value>>>;
+}
+
+impl Item for Variable {
+    fn get_type(&self) -> &Type {
+        &self.value_type
+    }
+    fn get_mutable(&self) -> bool {
+        self.mutable
+    }
+    fn get_initialized(&self) -> bool {
+        self.initialized
+    }
+    fn get(&self) -> Value {
+        self.value.borrow().clone()
+    }
+    fn get_ref(&self) -> Option<Rc<RefCell<Value>>> {
+        Some(self.value.clone())
+    }
+}
+impl Item for Constant {
+    fn get_type(&self) -> &Type {
+        &self.value_type
+    }
+    fn get_mutable(&self) -> bool {
+        false
+    }
+    fn get_initialized(&self) -> bool {
+        true
+    }
+    fn get(&self) -> Value {
+        self.value.clone()
+    }
+    fn get_ref(&self) -> Option<Rc<RefCell<Value>>> {
+        None
+    }
+}
+
+#[derive(Debug)]
 pub struct Scope {
+    pub imported_constants: HashMap<String, Constant>,
     pub variables: HashMap<String, Variable>,
     pub parent: Option<Rc<Scope>>,
 }
 
-#[derive(Debug)]
-pub struct LocalModule {
-    pub public_variables: HashMap<String, Variable>,
-}
-
-impl LocalModule {
-    pub fn new() -> Self {
-        Self {
-            public_variables: HashMap::new(),
-        }
+impl Scope {
+    pub fn get_var(&self, name: &String) -> Option<&dyn Item> {
+        self.variables
+            .get(name)
+            .map(|x| x as &dyn Item)
+            .or_else(|| self.imported_constants.get(name).map(|x| x as &dyn Item))
+            .or_else(|| self.parent.as_ref().and_then(|p| p.get_var(name)))
     }
 }
 
-impl Default for LocalModule {
-    fn default() -> Self {
-        Self::new()
+#[derive(Debug)]
+pub struct LocalModule {
+    pub public_variables: Vec<String>,
+    scope: Rc<Scope>,
+}
+
+impl LocalModule {
+    pub fn new(scope: Rc<Scope>) -> Self {
+        Self {
+            public_variables: Vec::new(),
+            scope,
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct ExternalModule {
+    pub constants: HashMap<String, Constant>,
     pub variables: HashMap<String, Variable>,
     pub submodules: HashMap<String, ExternalModule>,
 }
@@ -61,6 +118,7 @@ pub struct ExternalModule {
 impl ExternalModule {
     pub fn builder() -> ModuleBuilder {
         ModuleBuilder {
+            constants: HashMap::new(),
             variables: HashMap::new(),
             submodules: HashMap::new(),
         }

@@ -16,6 +16,15 @@ pub enum Key {
     Index(usize),
 }
 
+impl Display for Key {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Index(i) => write!(f, "{i}"),
+            Self::Named(s) => write!(f, "{s}"),
+        }
+    }
+}
+
 impl Equivalent<Key> for String {
     fn equivalent(&self, key: &Key) -> bool {
         match key {

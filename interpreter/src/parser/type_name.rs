@@ -18,6 +18,11 @@ pub enum TypeName {
     },
     Table(HashMap<Chunk<Key>, Chunk<TypeName>>),
     Reference(Chunk<Box<TypeName>>),
+    Unit,
+    Function {
+        parameters: Vec<Chunk<TypeName>>,
+        return_ty: Chunk<Box<TypeName>>,
+    },
 }
 
 impl TypeName {
@@ -159,6 +164,65 @@ impl TypeName {
         }
         .with(Self::Reference(ref_type.as_box())))
     }
+
+    fn parse_fn(source: &mut TokenStream) -> Result<Chunk<Self>> {
+        let span = parse_token(source, Token::KeywordFunction, "Expected function type.")?;
+        parse_token(
+            source,
+            Token::ParenOpen,
+            "Expected an open parenethis for fn type arguments",
+        )?;
+
+        let mut args = Vec::new();
+        let mut trailing_delimiter = true;
+        let end_span;
+
+        loop {
+            if let Some(Token::ParenClose) = source.peek_token() {
+                let Some(Ok(Chunk { span, .. })) = source.next() else {
+                    unreachable!()
+                };
+                end_span = span;
+                break;
+            } else if trailing_delimiter {
+                trailing_delimiter = false;
+                args.push(Self::parse(source)?);
+            } else {
+                return Err(match source.next() {
+                    Some(Ok(token)) => Error::new(token.span, "Expected a comma."),
+                    Some(Err(err)) => err,
+                    None => Error::new(
+                        Span::char(source.pos()),
+                        "Expected a closing parenthesis for fn type arguments.",
+                    ),
+                });
+            }
+
+            if let Some(Token::Comma) = source.peek_token() {
+                trailing_delimiter = true;
+                source.next();
+            }
+        }
+
+        let return_ty = if let Some(Token::Arrow) = source.peek_token() {
+            source.next();
+            Self::parse(source)?
+        } else {
+            Chunk {
+                span: end_span,
+                data: Self::Unit,
+            }
+        };
+
+        Ok(Span {
+            start: span.start,
+            end: return_ty.span.end,
+        }
+        .with(Self::Function {
+            parameters: args,
+            return_ty: return_ty.as_box(),
+        }))
+    }
 }
 
 impl Parse for TypeName {
@@ -166,6 +230,7 @@ impl Parse for TypeName {
         match source.peek_token() {
             Some(Token::KeywordRef) => Self::parse_reference(source),
             Some(Token::BracketOpen) => Self::parse_table(source),
+            Some(Token::KeywordFunction) => Self::parse_fn(source),
             _ => Self::parse_named(source),
         }
     }

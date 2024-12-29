@@ -80,6 +80,7 @@ impl TokenStream<'_> {
         self.peek_nth(1)
     }
 
+    /// starts at 1
     pub fn peek_nth_token(&mut self, index: usize) -> Option<&Token> {
         self.peek_nth(index)
             .and_then(|r| r.as_ref().ok())
@@ -315,6 +316,7 @@ impl TokenStream<'_> {
             ':' => operator!(Colon, self.pos),
             ',' => operator!(Comma, self.pos),
             '.' => operator!(Dot, self.pos),
+            '#' => operator!(Hash, self.pos),
             '=' => operator!(Equals, self.pos),
             '+' => operator!(Add, self.pos),
             '-' => operator!(Sub, self.pos),

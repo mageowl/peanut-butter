@@ -15,25 +15,21 @@ use crate::{eval::EvaluateChunk, parser::expression::Expression};
 pub struct Function {
     pub body: Chunk<Expression>,
     pub parameters: Vec<String>,
-    pub parent: Rc<Scope>,
     pub name: String,
+    pub(super) call_scope: Rc<Scope>,
 }
 
 impl Call for Function {
     fn call(&self, args: Vec<Value>) -> Result<Value> {
-        let call_scope = Rc::new(Scope {
-            variables: HashMap::from_iter(self.parameters.iter().map(Clone::clone).zip(
-                args.into_iter().map(|n| {
-                    Variable {
-                        value: Rc::new(RefCell::new(Some(n))),
-                        mutable: false,
-                        value_type: Type::Unit, // type checking already happened
-                        initialized: true,
-                    }
-                }),
-            )),
-            parent: Some(self.parent.clone()),
-        });
-        self.body.eval(call_scope)
+        for (arg, p) in args.into_iter().zip(self.parameters.iter()) {
+            self.call_scope
+                .variables
+                .get(p)
+                .expect("incorrectly setup")
+                .value
+                .replace(arg);
+        }
+
+        self.body.as_ref().eval(self.call_scope.clone())
     }
 }

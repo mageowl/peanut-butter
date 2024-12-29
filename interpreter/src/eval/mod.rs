@@ -13,7 +13,7 @@ pub trait Evaluate: Sized {
 impl Evaluate for Program {
     fn eval(chunk: Chunk<&Self>, scope: Rc<Scope>) -> Result<Value> {
         for expr in &chunk.data.body {
-            expr.eval(scope.clone())?;
+            expr.as_ref().eval(scope.clone())?;
         }
         Ok(Value::Unit)
     }
@@ -23,8 +23,8 @@ pub trait EvaluateChunk {
     fn eval(&self, scope: Rc<Scope>) -> Result<Value>;
 }
 
-impl<T: Evaluate> EvaluateChunk for Chunk<T> {
+impl<T: Evaluate> EvaluateChunk for Chunk<&T> {
     fn eval(&self, scope: Rc<Scope>) -> Result<Value> {
-        T::eval(self.as_ref(), scope)
+        T::eval(*self, scope)
     }
 }

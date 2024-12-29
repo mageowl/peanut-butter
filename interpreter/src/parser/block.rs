@@ -1,7 +1,10 @@
+use std::rc::Rc;
+
 use super::{expression::Expression, parse_token, statement::Statement, Parse};
-use crate::lexer::TokenStream;
+use crate::{lexer::TokenStream, type_check::UnlockedScope};
 use pbscript_lib::{
     error::{Error, Result},
+    module_tree::Scope,
     span::{Chunk, Span},
     token::Token,
 };
@@ -10,6 +13,8 @@ use pbscript_lib::{
 pub struct Block {
     pub body: Vec<Chunk<Statement>>,
     pub tail: Option<Chunk<Box<Expression>>>,
+    pub scope: Option<Rc<Scope>>,
+    pub unlocked_scope: Option<UnlockedScope>,
 }
 
 impl Parse for Block {
@@ -62,6 +67,11 @@ impl Parse for Block {
             start: span.start,
             end: span_end.end,
         }
-        .with(Self { body, tail }))
+        .with(Self {
+            body,
+            tail,
+            scope: None,
+            unlocked_scope: None,
+        }))
     }
 }

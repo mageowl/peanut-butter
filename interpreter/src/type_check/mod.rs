@@ -4,17 +4,17 @@ use hashbrown::HashMap;
 
 use pbscript_lib::{
     error::{Error, Result, Warn},
-    module_tree::{ExternalModule, LocalModule, ModuleTree, Variable},
+    module_tree::{Constant, ExternalModule, Item, ModuleTree, Variable},
     span::{Chunk, Span},
     types::Type,
-    value::Key,
+    value::{Key, Value},
 };
 
 use crate::parser::{
     block::Block,
     expression::{Comparison, Expression, Operation, UnaryOperation},
     program::Program,
-    statement::Statement,
+    statement::{AssignmentOperator, Statement},
     type_name::TypeName,
     Parameter,
 };
@@ -44,18 +44,28 @@ pub enum Ancestry<'a> {
     },
     Module {
         tree: &'a mut ModuleTree,
-        module: &'a mut LocalModule,
         prelude: &'a ExternalModule,
     },
 }
 
 impl<'a> Ancestry<'a> {
-    fn get_var(&self, name: &String) -> Option<&Variable> {
+    fn get_var(&self, name: &String) -> Option<&dyn Item> {
+        fn as_dyn<T: Item>(x: &T) -> &dyn Item {
+            x as &dyn Item
+        }
+
         match self {
-            Self::Scope { parent, scope } => {
-                scope.variables.get(name).or_else(|| parent.get_var(name))
-            }
-            Self::Module { prelude, .. } => prelude.variables.get(name),
+            Self::Scope { parent, scope } => scope
+                .variables
+                .get(name)
+                .map(as_dyn)
+                .or_else(|| scope.imported_constants.get(name).map(as_dyn))
+                .or_else(|| parent.get_var(name)),
+            Self::Module { prelude, .. } => prelude
+                .constants
+                .get(name)
+                .map(as_dyn)
+                .or_else(|| prelude.variables.get(name).map(as_dyn)),
         }
     }
     fn push(&'a self, scope: &'a UnlockedScope) -> Ancestry<'a> {
@@ -68,6 +78,7 @@ impl<'a> Ancestry<'a> {
 
 #[derive(Debug)]
 pub struct UnlockedScope {
+    imported_constants: HashMap<String, Constant>,
     variables: HashMap<String, Variable>,
     pub warnings: Vec<Warn>,
 }
@@ -76,9 +87,18 @@ impl UnlockedScope {
     #[expect(private_bounds)]
     pub fn new(tree: &mut impl Body, parent: &Ancestry<'_>) -> Result<Self> {
         let mut s = Self {
+            imported_constants: HashMap::new(),
             variables: HashMap::new(),
             warnings: Vec::new(),
         };
+
+        match parent {
+            Ancestry::Scope { .. } => (),
+            Ancestry::Module { prelude, .. } => {
+                s.imported_constants = prelude.constants.clone();
+                s.variables = prelude.variables.clone();
+            }
+        }
 
         for item in tree.body() {
             s.statement(item, parent)?;
@@ -101,6 +121,7 @@ impl UnlockedScope {
         };
 
         let mut call_scope = UnlockedScope {
+            imported_constants: HashMap::new(),
             variables: parameters
                 .iter()
                 .map(|p| {
@@ -109,7 +130,7 @@ impl UnlockedScope {
                         Variable {
                             mutable: false,
                             value_type: self.get_type(&p.data.type_hint.data)?,
-                            value: Rc::new(RefCell::new(None)),
+                            value: Rc::new(RefCell::new(Value::Unit)),
                             initialized: true,
                         },
                     ))
@@ -162,7 +183,7 @@ impl UnlockedScope {
                             ),
                         ));
                     },
-                    value: Rc::new(RefCell::new(None)),
+                    value: Rc::new(RefCell::new(Value::Unit)),
                     initialized: value.is_some(),
                     mutable: *mutable,
                 };
@@ -185,7 +206,7 @@ impl UnlockedScope {
                 let var = Variable {
                     mutable: *mutable,
                     initialized: true,
-                    value: Rc::new(RefCell::new(None)),
+                    value: Rc::new(RefCell::new(Value::Unit)),
                     value_type: Type::Fn {
                         parameters: parameters
                             .iter()
@@ -199,11 +220,81 @@ impl UnlockedScope {
             }
             Statement::Expression(expr) => {
                 let expr_type = self.expression(statement.span.with(expr), parent)?;
-                if !Type::is_unit(&expr_type) {
+                if !expr_type.is_unit() {
                     self.warnings.push(Warn::new(statement.span, "Expression does not have unit type. Try putting it into a let binding: 'let /* variable */ = '"))
                 }
             }
-            _ => (),
+
+            Statement::Assign { target, value, op } => {
+                let target_ty = match &target.data {
+                    Expression::Variable(name) => {
+                        if let Some(var) = self
+                            .variables
+                            .get(name)
+                            .map(|x| x as &dyn Item)
+                            .or_else(|| parent.get_var(name))
+                        {
+                            if var.get_initialized() {
+                                if var.get_mutable() {
+                                    var.get_type().clone()
+                                } else {
+                                    return Err(Error::new(
+                                        target.span,
+                                        format!("Variable {name} is not mutable"),
+                                    ));
+                                }
+                            } else {
+                                return Err(Error::new(
+                                    target.span,
+                                    format!("Variable {name} is not initialized."),
+                                ));
+                            }
+                        } else {
+                            return Err(Error::new(
+                                target.span,
+                                format!(
+                                    "Variable {name} does not exist, or is defined later in the program."
+                                ),
+                            ));
+                        }
+                    }
+                    Expression::Access(_, _) => self.expression(target.as_mut(), parent)?,
+                    Expression::Deref(_) => self.expression(target.as_mut(), parent)?,
+                    _ => return Err(Error::new(target.span, "This value cannot be assigned to.")),
+                };
+                let value_ty = self.expression(value.as_mut(), parent)?;
+
+                match op {
+                    AssignmentOperator::Assign => {
+                        if target_ty != value_ty {
+                            return Err(Error::new(
+                                value.span,
+                                format!(
+                                    "This value is of type {a}, but it is being assigned to a variable of type {b}.",
+                                    a = value_ty.simple_name(),
+                                    b = target_ty.simple_name()
+                                ),
+                            ));
+                        }
+                    }
+                    _ => {
+                        if target_ty != Type::Number {
+                            return Err(Error::new(
+                                target.span,
+                                "Only numbers can have arthimatic assignment.",
+                            ));
+                        }
+                        if value_ty != Type::Number {
+                            return Err(Error::new(
+                                value.span,
+                                "Expected a number to use for arthimatic assignment.",
+                            ));
+                        }
+                    }
+                }
+            }
+
+            _ => todo!(),
         }
 
         Ok(())
@@ -236,7 +327,9 @@ impl UnlockedScope {
                 parameters,
                 return_type,
                 body,
+                ..
             } => {
+                let body = body.as_mut().expect("already locked");
                 let return_type = self.fn_def(
                     body.span.with(body.data.as_mut()),
                     return_type,
@@ -254,9 +347,14 @@ impl UnlockedScope {
             }
 
             Expression::Variable(name) => {
-                if let Some(var) = self.variables.get(name).or_else(|| parent.get_var(name)) {
-                    if var.initialized {
-                        Ok(var.value_type.clone())
+                if let Some(var) = self
+                    .variables
+                    .get(name)
+                    .map(|x| x as &dyn Item)
+                    .or_else(|| parent.get_var(name))
+                {
+                    if var.get_initialized() {
+                        Ok(var.get_type().clone())
                     } else {
                         Err(Error::new(
                             expr.span,
@@ -272,38 +370,54 @@ impl UnlockedScope {
                     ))
                 }
             }
-            Expression::Reference(target) => Ok(Type::Ref(Box::new(
-                self.expression(expr.span.with(target.data.as_mut()), parent)?,
-            ))),
-            Expression::Access(target, prop) => {
-                let target_type =
-                    self.expression(target.span.with(target.data.as_mut()), parent)?;
-                if let Type::Table(map) = target_type {
-                    if let Some(ty) = map.get(&prop.data) {
-                        Ok(ty.clone())
+            Expression::Reference(target) => match &*target.data {
+                Expression::Variable(name) => {
+                    if let Some(var) = self
+                        .variables
+                        .get(name)
+                        .map(|x| x as &dyn Item)
+                        .or_else(|| parent.get_var(name))
+                    {
+                        if var.get_initialized() {
+                            if var.get_mutable() {
+                                Ok(Type::Ref(Box::new(var.get_type().clone())))
+                            } else {
+                                Err(Error::new(target.span, format!("Variable {name} is immutable, so you can't make a reference to it.")))
+                            }
+                        } else {
+                            Err(Error::new(
+                                target.span,
+                                format!("Variable {name} is not initialized."),
+                            ))
+                        }
                     } else {
-                        Err(Error::new(
-                            prop.span,
-                            format!("Property {} does not exist on this table.", prop.data),
-                        ))
+                        Err(Error::new(target.span, format!("Variable {name} does not exist, or is defined later in the program.")))
                     }
-                } else {
-                    Err(Error::new(
-                        target.span,
-                        "Cannot access properties of a non-table value.",
-                    ))
+                }
+                _ => Ok(Type::Ref(Box::new(
+                    self.expression(target.span.with(&mut target.data), parent)?,
+                ))),
+            },
+            Expression::Deref(reference) => {
+                let ref_ty = self.expression(reference.span.with(&mut reference.data), parent)?;
+                match ref_ty {
+                    Type::Ref(ty) => Ok(*ty),
+                    _ => Err(Error::new(
+                        reference.span,
+                        "This is not a reference. Only reference types can be dereferenced.",
+                    )),
                 }
             }
-            Expression::Index(target, idx) => {
+            Expression::Access(target, key) => {
                 let target_type =
                     self.expression(target.span.with(target.data.as_mut()), parent)?;
                 if let Type::Table(map) = target_type {
-                    if let Some(ty) = map.get(&idx.data) {
+                    if let Some(ty) = map.get(&key.data) {
                         Ok(ty.clone())
                     } else {
                         Err(Error::new(
-                            idx.span,
-                            format!("Property {} does not exist on this table.", idx.data),
+                            key.span,
+                            format!("Property {} does not exist on this table.", key.data),
                         ))
                     }
                 } else {
@@ -340,11 +454,7 @@ impl UnlockedScope {
                 }
             }
 
-            Expression::Block {
-                data,
-                unlocked_scope,
-                ..
-            } => {
+            Expression::Block(data) => {
                 let ancestry = parent.push(self);
 
                 let mut scope = UnlockedScope::new(data, &ancestry)?;
@@ -354,7 +464,7 @@ impl UnlockedScope {
                     Type::Unit
                 };
 
-                *unlocked_scope = Some(scope);
+                data.unlocked_scope = Some(scope);
 
                 Ok(tail_ty)
             }
@@ -407,6 +517,14 @@ impl UnlockedScope {
                     } else {
                         ty = Some(tail_ty);
                     }
+                } else if ty != Some(Type::Unit) {
+                    return Err(Error::new(
+                        expr.span,
+                        format!(
+                            "If statement is missing an else block. Previous if conditions returned a type of {}, which means there must be a fallback value.",
+                            ty.expect("yolo").simple_name()
+                        )
+                    ));
                 }
 
                 // If conditions must have at least 1 block.
@@ -437,6 +555,38 @@ impl UnlockedScope {
                 }
 
                 Ok(Type::Number)
+            }
+            Expression::BinaryOp {
+                a,
+                b,
+                op:
+                    Chunk {
+                        data: Operation::Concatination,
+                        ..
+                    },
+            } => {
+                let a_ty = self.expression(a.span.with(a.data.as_mut()), parent)?;
+                let b_ty = self.expression(b.span.with(b.data.as_mut()), parent)?;
+                if a_ty != Type::String {
+                    return Err(Error::new(
+                        a.span,
+                        format!(
+                            "Expected a string for concatination, but got {}",
+                            a_ty.simple_name()
+                        ),
+                    ));
+                }
+                if b_ty != Type::String {
+                    return Err(Error::new(
+                        b.span,
+                        format!(
+                            "Expected a string for concatination, but got {}",
+                            b_ty.simple_name()
+                        ),
+                    ));
+                }
+
+                Ok(Type::String)
             }
             Expression::BinaryOp {
                 a,
@@ -542,36 +692,6 @@ impl UnlockedScope {
 
                 Ok(Type::Boolean)
             }
-            Expression::AsType { expr, ty } => {
-                let ty = self.get_type(ty)?;
-                let expr_ty =
-                    self.inferred_type_expr(expr.span.with(&mut expr.data), &ty, parent)?;
-                if expr_ty != ty {
-                    return Err(Error::new(
-                        expr.span,
-                        format!(
-                            "Cannot a {} to a {}.",
-                            expr_ty.simple_name(),
-                            ty.simple_name()
-                        ),
-                    ));
-                }
-                todo!()
-            }
-        }
-    }
-
-    fn inferred_type_expr(
-        &mut self,
-        expr: Chunk<&mut Expression>,
-        ty: &Type,
-        parent: &Ancestry<'_>,
-    ) -> Result<Type> {
-        match expr.data {
-            Expression::Table(map) => {
-                todo!()
-            }
-            _ => self.expression(expr, parent),
         }
     }
 
@@ -646,6 +766,17 @@ impl UnlockedScope {
                     Ok(Type::Table(map))
                 }
             }
+            TypeName::Unit => Ok(Type::Unit),
+            TypeName::Function {
+                parameters,
+                return_ty,
+            } => Ok(Type::Fn {
+                parameters: parameters
+                    .iter()
+                    .map(|ty| self.get_type(ty))
+                    .collect::<Result<Vec<_>>>()?,
+                return_type: Box::new(self.get_type(&*return_ty.data)?),
+            }),
         }
     }
 }

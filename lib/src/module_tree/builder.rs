@@ -3,13 +3,14 @@ use std::{cell::RefCell, rc::Rc};
 
 use hashbrown::HashMap;
 
-use super::{ExternalModule, Variable};
+use super::{Constant, ExternalModule, Variable};
 use crate::{
     types::Type,
     value::{function::FFIFunction, Value},
 };
 
 pub struct ModuleBuilder {
+    pub constants: HashMap<String, Constant>,
     pub variables: HashMap<String, Variable>,
     pub submodules: HashMap<String, ExternalModule>,
 }
@@ -17,6 +18,7 @@ pub struct ModuleBuilder {
 impl ModuleBuilder {
     pub fn build(self) -> ExternalModule {
         ExternalModule {
+            constants: self.constants,
             variables: self.variables,
             submodules: self.submodules,
         }
@@ -26,24 +28,20 @@ impl ModuleBuilder {
     where
         FFIWrapper<T, M>: Call,
     {
-        if !self.variables.contains_key(name) {
-            self.variables.insert(
+        if !self.constants.contains_key(name) {
+            self.constants.insert(
                 name.to_string(),
-                Variable {
+                Constant {
                     value_type: Type::Fn {
                         parameters: T::parameters(),
                         return_type: Box::new(T::return_ty()),
                     },
-                    value: Rc::new(RefCell::new(Some(Value::Function(Rc::new(
-                        func.into_wrapper(),
-                    ))))),
-                    initialized: true,
-                    mutable: false,
+                    value: Value::Function(Rc::new(func.into_wrapper())),
                 },
             );
             self
         } else {
-            panic!("A function of name {name} has already been declared in this module.");
+            panic!("A constant of name {name} has already been declared in this module.");
         }
     }
 }

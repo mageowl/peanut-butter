@@ -1,13 +1,20 @@
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 use super::{function::Function, Body, UnlockedScope};
-use crate::parser::{expression::Expression, program::Program, statement::Statement};
-use pbscript_lib::{error::Warn, module_tree::Scope, value::Value};
+use crate::parser::{block::Block, expression::Expression, program::Program, statement::Statement};
+use hashbrown::HashMap;
+use pbscript_lib::{
+    error::Warn,
+    module_tree::{Scope, Variable},
+    types::Type,
+    value::Value,
+};
 
 impl UnlockedScope {
     #[allow(private_bounds)]
     pub fn lock(mut self, tree: &mut Program) -> Vec<Warn> {
         let rc = Rc::new(Scope {
+            imported_constants: self.imported_constants,
             variables: self.variables,
             parent: None,
         });
@@ -21,9 +28,25 @@ impl UnlockedScope {
     }
 }
 
-fn lock_body(parent: Rc<Scope>, tree: &mut impl Body, warnings: &mut Vec<Warn>) {
-    for item in tree.body() {
-        lock_statement(parent.clone(), &mut item.data, warnings);
+fn lock_block(parent: Rc<Scope>, block: &mut Block, warnings: &mut Vec<Warn>) {
+    let mut unlocked_scope = block
+        .unlocked_scope
+        .take()
+        .expect("Tried to lock uninitialized scope");
+    warnings.append(&mut unlocked_scope.warnings);
+    block.scope = Some(Rc::new(Scope {
+        imported_constants: unlocked_scope.imported_constants,
+        variables: unlocked_scope.variables,
+        parent: Some(parent),
+    }));
+
+    for item in &mut block.body {
+        #[allow(clippy::unwrap_used)]
+        lock_statement(block.scope.clone().unwrap(), &mut item.data, warnings);
+    }
+    if let Some(tail) = block.tail.as_mut() {
+        #[allow(clippy::unwrap_used)]
+        lock_expression(block.scope.clone().unwrap(), tail, warnings);
     }
 }
 
@@ -42,17 +65,38 @@ fn lock_statement(parent: Rc<Scope>, statement: &mut Statement, warnings: &mut V
             ..
         } => {
             let mut body_expr = body.take().expect("already locked");
+            let call_scope = Rc::new(Scope {
+                imported_constants: HashMap::new(),
+                variables: HashMap::from_iter(parameters.iter().map(|p| p.name.data.clone()).map(
+                    |p| {
+                        (
+                            p,
+                            Variable {
+                                value_type: Type::Unit,
+                                value: Rc::new(RefCell::new(Value::Unit)),
+                                initialized: true,
+                                mutable: false,
+                            },
+                        )
+                    },
+                )),
+                parent: Some(parent.clone()),
+            });
 
-            lock_expression(parent.clone(), &mut body_expr.data, warnings);
+            lock_expression(call_scope.clone(), &mut body_expr.data, warnings);
             let fn_ref = Value::Function(Rc::new(Function {
-                body: body_expr,
+                body: body_expr.span.with(body_expr.data),
                 parameters: parameters.iter().map(|p| p.name.data.clone()).collect(),
-                parent: parent.clone(),
-                name: name.data.clone(),
+                name: String::new(),
+                call_scope,
             }));
-            parent.variables[&name.data].value.replace(Some(fn_ref));
+            parent.variables[&name.data].value.replace(fn_ref);
         }
         Statement::Expression(expr) => lock_expression(parent, expr, warnings),
+        Statement::Assign { value, target, .. } => {
+            lock_expression(parent.clone(), value, warnings);
+            lock_expression(parent, target, warnings);
+        }
     }
 }
 
@@ -63,10 +107,43 @@ fn lock_expression(parent: Rc<Scope>, expression: &mut Expression, warnings: &mu
                 lock_expression(parent.clone(), &mut expr.data, warnings);
             }
         }
-        Expression::Lambda { body, .. } => lock_expression(parent, &mut body.data, warnings),
+        Expression::Lambda {
+            body,
+            parameters,
+            value,
+            ..
+        } => {
+            let mut body = body.take().expect("already locked");
+            let call_scope = Rc::new(Scope {
+                imported_constants: HashMap::new(),
+                variables: HashMap::from_iter(parameters.iter().map(|p| p.name.data.clone()).map(
+                    |p| {
+                        (
+                            p,
+                            Variable {
+                                value_type: Type::Unit,
+                                value: Rc::new(RefCell::new(Value::Unit)),
+                                initialized: true,
+                                mutable: false,
+                            },
+                        )
+                    },
+                )),
+                parent: Some(parent),
+            });
+
+            lock_expression(call_scope.clone(), &mut body.data, warnings);
+            let fn_ref = Value::Function(Rc::new(Function {
+                body: body.span.with(*body.data),
+                parameters: parameters.iter().map(|p| p.name.data.clone()).collect(),
+                name: String::new(),
+                call_scope,
+            }));
+            let _ = value.insert(fn_ref);
+        }
         Expression::Reference(value) => lock_expression(parent, &mut value.data, warnings),
 
-        Expression::Access(expr, _) | Expression::Index(expr, _) => {
+        Expression::Access(expr, _) => {
             lock_expression(parent, &mut expr.data, warnings);
         }
         Expression::DynAccess(target, prop) => {
@@ -80,27 +157,14 @@ fn lock_expression(parent: Rc<Scope>, expression: &mut Expression, warnings: &mu
             lock_expression(parent, &mut value.data, warnings);
         }
 
-        Expression::Block {
-            scope,
-            unlocked_scope,
-            ..
-        } => {
-            let mut unlocked_scope = unlocked_scope
-                .take()
-                .expect("Tried to lock uninitialized scope");
-            warnings.append(&mut unlocked_scope.warnings);
-            *scope = Some(Rc::new(Scope {
-                variables: unlocked_scope.variables,
-                parent: None,
-            }));
-        }
+        Expression::Block(block) => lock_block(parent, block, warnings),
         Expression::If { blocks, else_block } => {
             for (cond, block) in blocks {
                 lock_expression(parent.clone(), &mut cond.data, warnings);
-                lock_body(parent.clone(), &mut block.data, warnings);
+                lock_block(parent.clone(), block, warnings);
             }
             if let Some(block) = else_block {
-                lock_body(parent, &mut block.data, warnings);
+                lock_block(parent, block, warnings);
             }
         }
 

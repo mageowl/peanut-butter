@@ -31,16 +31,33 @@ pub enum Statement {
         value: Chunk<TypeName>,
     },
 
+    Assign {
+        target: Chunk<Expression>,
+        value: Chunk<Expression>,
+        op: AssignmentOperator,
+    },
     Expression(Expression),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssignmentOperator {
+    Assign,
+    AddAssign,
+    SubAssign,
+    MulAssign,
+    DivAssign,
 }
 
 impl Statement {
     fn parse_def_variable(source: &mut TokenStream) -> Result<Chunk<Self>> {
-        let mutable = source.peek_token() == Some(&Token::KeywordMut);
-
-        let Some(Ok(Chunk { span, data: _ })) = source.next() else {
+        let Some(Ok(Chunk {
+            span,
+            data: keyword,
+        })) = source.next()
+        else {
             unreachable!()
         };
+        let mutable = keyword == Token::KeywordMut;
         let name = parse_ident(source, "Expected a variable name. Valid identifiers must include just letters, underscores, and numbers.")?;
 
         let type_hint = if let Some(Token::Colon) = source.peek_token() {
@@ -51,18 +68,18 @@ impl Statement {
         };
 
         let value = match source.peek_token() {
-                    Some(Token::Equals) => {
-                        source.next();
-                        Some(Expression::parse(source)?)
-                    }
-                    Some(Token::Semicolon) => None,
-                    Some(_) => {
-                        #[allow(clippy::unwrap_used)]
-                        let Chunk { span, .. } = source.next().unwrap()?;
-                        return Err(Error::new(span, "Expected an equal sign to denote an initial value, or a semicolon to leave it unassigned."));
-                    }
-                    None => return Err(Error::new(Span::char(source.pos()), "Expected an equal sign to denote an initial value, or a semicolon to leave it unassigned."))
-                };
+                Some(Token::Equals) => {
+                    source.next();
+                    Some(Expression::parse(source)?)
+                }
+                Some(Token::Semicolon) => None,
+                Some(_) => {
+                    #[allow(clippy::unwrap_used)]
+                    let Chunk { span, .. } = source.next().unwrap()?;
+                    return Err(Error::new(span, "Expected an equal sign to denote an initial value, or a semicolon to leave it unassigned."));
+                }
+                None => return Err(Error::new(Span::char(source.pos()), "Expected an equal sign to denote an initial value, or a semicolon to leave it unassigned."))
+            };
 
         Ok(Span {
             start: span.start,
@@ -203,10 +220,52 @@ impl Statement {
             value,
         }))
     }
+
+    fn parse_assignment(
+        source: &mut TokenStream,
+        target: Chunk<Expression>,
+    ) -> Result<Chunk<Self>> {
+        let op = match source.next().unwrap_or_else(|| {
+            Err(Error::new(
+                Span::char(source.pos()),
+                "Expected assignment operator.",
+            ))
+        })? {
+            Chunk {
+                data: Token::Equals,
+                ..
+            } => AssignmentOperator::Assign,
+            Chunk {
+                data: Token::AddAssign,
+                ..
+            } => AssignmentOperator::AddAssign,
+            Chunk {
+                data: Token::SubAssign,
+                ..
+            } => AssignmentOperator::SubAssign,
+            Chunk {
+                data: Token::MulAssign,
+                ..
+            } => AssignmentOperator::MulAssign,
+            Chunk {
+                data: Token::DivAssign,
+                ..
+            } => AssignmentOperator::DivAssign,
+            Chunk { span, .. } => return Err(Error::new(span, "Expected an assignment operator.")),
+        };
+
+        let value = Expression::parse(source)?;
+        Ok(Span {
+            start: target.span.start,
+            end: value.span.end,
+        }
+        .with(Self::Assign { target, value, op }))
+    }
 }
 
 impl Parse for Statement {
     fn parse(source: &mut TokenStream) -> Result<Chunk<Self>> {
+        let ident_next = matches!(source.peek_nth_token(2), Some(Token::Ident(_)));
         match source.peek_token() {
             Some(Token::KeywordMut) => {
                 if source.peek_nth_token(2) == Some(&Token::KeywordFunction) {
@@ -216,11 +275,22 @@ impl Parse for Statement {
                 }
             }
             Some(Token::KeywordLet) => Self::parse_def_variable(source),
-            Some(Token::KeywordFunction) => Self::parse_def_function(source, false),
+            Some(Token::KeywordFunction) if ident_next => Self::parse_def_function(source, false),
             Some(Token::KeywordType) => Self::parse_def_type(source),
             Some(_) => {
-                let Chunk { span, data: expr } = Expression::parse(source)?;
-                Ok(span.with(Self::Expression(expr)))
+                let expr = Expression::parse(source)?;
+                if let Some(
+                    Token::Equals
+                    | Token::AddAssign
+                    | Token::SubAssign
+                    | Token::MulAssign
+                    | Token::DivAssign,
+                ) = source.peek_token()
+                {
+                    Self::parse_assignment(source, expr)
+                } else {
+                    Ok(expr.span.with(Self::Expression(expr.data)))
+                }
             }
             None => Err(Error::new(
                 Span::char(source.pos()),

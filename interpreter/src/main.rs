@@ -17,20 +17,19 @@ mod parser;
 mod prelude;
 mod type_check;
 
-pub fn interpret(code: &str, mut module: LocalModule, mut module_tree: ModuleTree) -> Result<()> {
+pub fn interpret(code: &str, mut module_tree: ModuleTree) -> Result<()> {
     let mut token_stream = TokenStream::from(code);
     let mut program = Program::parse(&mut token_stream)?;
 
     let prelude = prelude::build();
     let ancestry = Ancestry::Module {
         tree: &mut module_tree,
-        module: &mut module,
         prelude: &prelude,
     };
     let scope = UnlockedScope::new(&mut program.data, &ancestry)?;
     scope.lock(&mut program.data);
 
-    program.eval(
+    program.as_ref().eval(
         program
             .scope
             .as_ref()
@@ -46,9 +45,7 @@ fn main() {
     let file = fs::read_to_string(&path).expect("failed to open file");
 
     let module_tree = ModuleTree::new();
-    let module = LocalModule::new();
-
-    if let Err(error) = interpret(&file, module, module_tree) {
+    if let Err(error) = interpret(&file, module_tree) {
         println!("{error}")
     }
 }

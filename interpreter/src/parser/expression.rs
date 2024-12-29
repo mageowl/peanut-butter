@@ -1,15 +1,12 @@
-use std::{boxed, rc::Rc};
-
 use hashbrown::HashMap;
 
 use super::{parse_ident, parse_token};
-use crate::{lexer::TokenStream, type_check::UnlockedScope};
+use crate::lexer::TokenStream;
 use pbscript_lib::{
     error::{Error, Result},
-    module_tree::Scope,
     span::{Chunk, Span},
     token::Token,
-    value::Key,
+    value::{Key, Value},
 };
 
 use super::{block::Block, type_name::TypeName, Parameter, Parse};
@@ -23,24 +20,21 @@ pub enum Expression {
     Lambda {
         parameters: Vec<Chunk<Parameter>>,
         return_type: Option<Chunk<TypeName>>,
-        body: Chunk<Box<Expression>>,
+        body: Option<Chunk<Box<Expression>>>,
+        value: Option<Value>,
     },
 
     Variable(String),
     Reference(Chunk<Box<Expression>>),
-    Access(Chunk<Box<Expression>>, Chunk<String>),
-    Index(Chunk<Box<Expression>>, Chunk<usize>),
+    Deref(Chunk<Box<Expression>>),
+    Access(Chunk<Box<Expression>>, Chunk<Key>),
     DynAccess(Chunk<Box<Expression>>, Chunk<Box<Expression>>),
     Call {
         value: Chunk<Box<Expression>>,
         args: Vec<Chunk<Expression>>,
     },
 
-    Block {
-        data: Block,
-        scope: Option<Rc<Scope>>,
-        unlocked_scope: Option<UnlockedScope>,
-    },
+    Block(Block),
     If {
         blocks: Vec<(Chunk<Expression>, Chunk<Block>)>,
         else_block: Option<Chunk<Block>>,
@@ -55,14 +49,11 @@ pub enum Expression {
         a: Chunk<Box<Expression>>,
         op: Chunk<UnaryOperation>,
     },
-    AsType {
-        expr: Chunk<Box<Expression>>,
-        ty: Chunk<TypeName>,
-    },
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
 pub enum Operation {
+    Concatination,
     Exponentation,
     Multiplication,
     Division,
@@ -278,7 +269,8 @@ impl Expression {
         .with(Self::Lambda {
             parameters: args,
             return_type,
-            body,
+            body: Some(body),
+            value: None,
         }))
     }
 
@@ -412,11 +404,7 @@ impl Expression {
 
             Some(Token::BraceOpen) => {
                 let Chunk { span, data } = Block::parse(source)?;
-                span.with(Self::Block {
-                    data,
-                    scope: None,
-                    unlocked_scope: None,
-                })
+                span.with(Self::Block(data))
             }
 
             Some(Token::Exclamation | Token::Sub) => {
@@ -439,6 +427,18 @@ impl Expression {
                 })
             }
 
+            Some(Token::ParenOpen) => {
+                // skip parenthisis open
+                source.next();
+                let expr = Self::parse(source)?;
+                parse_token(
+                    source,
+                    Token::ParenClose,
+                    "No matching closing parenthesis.",
+                )?;
+                expr
+            }
+
             Some(_) => {
                 #[allow(clippy::unwrap_used)]
                 let Chunk { span, .. } = source.next().unwrap()?;
@@ -455,22 +455,34 @@ impl Expression {
             }
         };
 
-        while let Some(Token::Dot | Token::BracketOpen | Token::ParenOpen | Token::KeywordAs) =
-            source.peek_token()
-        {
+        while let Some(Token::Dot | Token::BracketOpen | Token::ParenOpen) = source.peek_token() {
             #[allow(clippy::unwrap_used)]
             match source.next().unwrap()?.data {
                 Token::ParenOpen => {
                     expr = Self::parse_function_call(source, expr.as_box())?;
                 }
                 Token::Dot => {
-                    let property = parse_ident(source, "Expected a identifier.")?;
+                    if let Some(Token::KeywordRef) = source.peek_token() {
+                        let Some(Ok(Chunk { span, .. })) = source.next() else {
+                            unreachable!()
+                        };
+                        expr = Span {
+                            start: expr.span.start,
+                            end: span.end,
+                        }
+                        .with(Expression::Deref(expr.as_box()));
+                    } else {
+                        let property = parse_ident(source, "Expected a identifier.")?;
 
-                    expr = Span {
-                        start: expr.span.start,
-                        end: property.span.end,
+                        expr = Span {
+                            start: expr.span.start,
+                            end: property.span.end,
+                        }
+                        .with(Expression::Access(
+                            expr.as_box(),
+                            property.span.with(Key::Named(property.data)),
+                        ));
                     }
-                    .with(Expression::Access(expr.as_box(), property));
                 }
                 Token::BracketOpen => {
                     let property = Expression::parse(source)?;
@@ -487,26 +499,12 @@ impl Expression {
                     .with(match &property.data {
                         Expression::Number(key) => {
                             if *key >= 0.0 && !key.is_nan() && key.floor() == *key {
-                                Expression::Index(expr.as_box(), property.span.with(*key as usize))
+                                Expression::Access(expr.as_box(), property.span.with(Key::Index(*key as usize)))
                             } else {
                                 return Err(Error::new(property.span, "I can only use round numbers that are zero or more as keys in a table."));
                             }
                         }
                         _ => Expression::DynAccess(expr.as_box(), property.as_box()),
-                    })
-                }
-                Token::KeywordAs => {
-                    dbg!("hi2");
-                    let ty = TypeName::parse(source)?;
-                    dbg!(&ty);
-
-                    expr = Span {
-                        start: expr.span.start,
-                        end: ty.span.end,
-                    }
-                    .with(Expression::AsType {
-                        expr: expr.as_box(),
-                        ty,
                     })
                 }
 
@@ -594,6 +592,34 @@ impl Parse for Expression {
 
             let b_expr = Self::parse_single(source)?;
             expr = insert(expr.as_box(), op, b_expr.as_box());
+        }
+
+        // Concatination
+        if matches!(source.peek_token(), Some(Token::String(_)))
+            || (matches!(expr.data, Expression::String(_))
+                && !matches!(
+                    source.peek_token(),
+                    Some(
+                        Token::Comma
+                            | Token::Semicolon
+                            | Token::ParenClose
+                            | Token::BraceClose
+                            | Token::BracketClose
+                    )
+                ))
+        {
+            let op_span = Span::char(source.pos());
+            let b_expr = Self::parse(source)?;
+
+            expr = Span {
+                start: expr.span.start,
+                end: b_expr.span.end,
+            }
+            .with(Self::BinaryOp {
+                a: expr.as_box(),
+                b: b_expr.as_box(),
+                op: op_span.with(Operation::Concatination),
+            });
         }
 
         Ok(expr)
