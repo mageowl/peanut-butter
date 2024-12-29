@@ -67,6 +67,7 @@ impl TokenStream<'_> {
         self.current_line.next()
     }
 
+    /// starts at 1
     pub fn peek_nth(&mut self, index: usize) -> Option<&<Self as Iterator>::Item> {
         while self.next.len() < index {
             let next = self.force_next();

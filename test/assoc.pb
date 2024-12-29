@@ -6,15 +6,18 @@ type Person = [
 	into: fn { (self: Person) -> str; (self: Person) -> num; },
 ];
 
+fn Person_into(self: Person) -> str
+	= self.first_name;
+
 fn Person([first_name: str, last_name: str = "", age: num]) -> Person = {
 	let self = [
 		with first_name,
 		with last_name,
+		into = Person_into,
 	];
+	self
+};
 
-	fn self#into() -> str
-		= self.first_name;
-}
 type Into<T> = [
 	into: fn(Self) -> T,
 ];
