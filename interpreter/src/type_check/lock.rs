@@ -62,6 +62,7 @@ fn lock_statement(parent: Rc<Scope>, statement: &mut Statement, warnings: &mut V
             body,
             name,
             parameters,
+            return_type,
             ..
         } => {
             let mut body_expr = body.take().expect("already locked");
@@ -84,11 +85,25 @@ fn lock_statement(parent: Rc<Scope>, statement: &mut Statement, warnings: &mut V
             });
 
             lock_expression(call_scope.clone(), &mut body_expr.data, warnings);
+            let args_signature = parameters
+                .iter()
+                .map(|p| format!("{name}: {ty:?}", name = p.name.data, ty = p.type_hint.data))
+                .collect::<Vec<_>>()
+                .join(", ");
             let fn_ref = Value::Function(Rc::new(Function {
                 body: body_expr.span.with(body_expr.data),
                 parameters: parameters.iter().map(|p| p.name.data.clone()).collect(),
-                name: String::new(),
                 call_scope,
+                signature: if let Some(return_ty) = return_type {
+                    format!(
+                        "fn {name}({args}) -> {return_ty:?}",
+                        name = name,
+                        args = args_signature,
+                        return_ty = return_ty.data
+                    )
+                } else {
+                    format!("fn {name}({args})", name = name, args = args_signature)
+                },
             }));
             parent.variables[&name.data].value.replace(fn_ref);
         }
@@ -111,6 +126,7 @@ fn lock_expression(parent: Rc<Scope>, expression: &mut Expression, warnings: &mu
             body,
             parameters,
             value,
+            return_type,
             ..
         } => {
             let mut body = body.take().expect("already locked");
@@ -129,15 +145,28 @@ fn lock_expression(parent: Rc<Scope>, expression: &mut Expression, warnings: &mu
                         )
                     },
                 )),
-                parent: Some(parent),
+                parent: Some(parent.clone()),
             });
 
             lock_expression(call_scope.clone(), &mut body.data, warnings);
+            let args_signature = parameters
+                .iter()
+                .map(|p| format!("{name}: {ty:?}", name = p.name.data, ty = p.type_hint.data))
+                .collect::<Vec<_>>()
+                .join(", ");
             let fn_ref = Value::Function(Rc::new(Function {
                 body: body.span.with(*body.data),
                 parameters: parameters.iter().map(|p| p.name.data.clone()).collect(),
-                name: String::new(),
                 call_scope,
+                signature: if let Some(return_ty) = return_type.as_ref() {
+                    format!(
+                        "fn({args}) -> {return_ty:?}",
+                        args = args_signature,
+                        return_ty = return_ty.data
+                    )
+                } else {
+                    format!("fn({args})", args = args_signature)
+                },
             }));
             let _ = value.insert(fn_ref);
         }

@@ -67,11 +67,11 @@ impl Value {
         map: &HashMap<Key, Rc<RefCell<Value>>>,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
-        f.write_str("[")?;
+        f.write_str("[\n")?;
         let mut i = 0;
         while map.contains_key(&i) {
             if i > 0 {
-                f.write_str(", ")?;
+                f.write_str(",\n")?;
             }
             write!(f, "{}", map[&i].borrow())?;
 
@@ -85,13 +85,14 @@ impl Value {
                 _ => None,
             } {
                 if i > 0 {
-                    f.write_str(", ")?;
+                    f.write_str(",\n")?;
                 }
                 write!(f, "{key} = {}", v.borrow())?;
 
                 i += 1;
             }
         }
+        f.write_str("]")?;
         Ok(())
     }
 }
@@ -99,11 +100,11 @@ impl Value {
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::String(str) => f.write_str(str),
+            Self::String(str) => write!(f, "\"{str}\""),
             Self::Number(n) => write!(f, "{n}"),
             Self::Boolean(b) => f.write_str(if *b { "true" } else { "false" }),
             Self::Table(map) => Self::fmt_table(map, f),
-            Self::Function(_) => f.write_str("internal fn"),
+            Self::Function(c) => f.write_str(c.to_str()),
             Self::Reference(v) => write!(f, "ref {}", v.borrow()),
             Self::Unit => write!(f, "[]"),
         }
@@ -217,4 +218,7 @@ impl<T: From<Value>> From<Value> for HashMap<Key, T> {
 
 pub trait Call {
     fn call(&self, args: Vec<Value>) -> Result<Value>;
+    fn to_str(&self) -> &str {
+        "[internal fn]"
+    }
 }
