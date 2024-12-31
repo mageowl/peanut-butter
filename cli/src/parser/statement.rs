@@ -23,7 +23,7 @@ pub enum Statement {
         name: Chunk<String>,
         parameters: Vec<Chunk<Parameter>>,
         return_type: Option<Chunk<TypeName>>,
-        body: Option<Chunk<Expression>>,
+        body: Chunk<Expression>,
     },
     DefType {
         name: Chunk<String>,
@@ -160,7 +160,7 @@ impl Statement {
             name,
             parameters: args,
             return_type,
-            body: Some(body),
+            body,
         }))
     }
 

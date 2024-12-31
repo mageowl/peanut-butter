@@ -6,7 +6,7 @@ use pbscript_lib::{
     error::{Error, Result},
     span::{Chunk, Span},
     token::Token,
-    value::{Key, Value},
+    value::Key,
 };
 
 use super::{block::Block, type_name::TypeName, Parameter, Parse};
@@ -20,8 +20,7 @@ pub enum Expression {
     Lambda {
         parameters: Vec<Chunk<Parameter>>,
         return_type: Option<Chunk<TypeName>>,
-        body: Option<Chunk<Box<Expression>>>,
-        value: Option<Value>,
+        body: Chunk<Box<Expression>>,
     },
 
     Variable(String),
@@ -269,8 +268,7 @@ impl Expression {
         .with(Self::Lambda {
             parameters: args,
             return_type,
-            body: Some(body),
-            value: None,
+            body,
         }))
     }
 

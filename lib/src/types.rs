@@ -58,16 +58,16 @@ impl Type {
             _ => false,
         }
     }
-}
 
-impl PartialEq for Type {
-    fn eq(&self, other: &Self) -> bool {
+    pub fn matches(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::String, Self::String) => true,
             (Self::Number, Self::Number) => true,
             (Self::Boolean, Self::Boolean) => true,
             (a, b) if a.is_unit() && b.is_unit() => true,
-            (Self::Table(m1), Self::Table(m2)) => m1 == m2,
+            (Self::Table(m1), Self::Table(m2)) => m1
+                .iter()
+                .all(|(k, t)| m2.contains_key(k) && t.matches(&m2[k])),
             (
                 Self::Fn {
                     parameters: p1,
@@ -87,6 +87,12 @@ impl PartialEq for Type {
 
             _ => false,
         }
+    }
+}
+
+impl PartialEq for Type {
+    fn eq(&self, other: &Self) -> bool {
+        self.matches(other)
     }
 }
 

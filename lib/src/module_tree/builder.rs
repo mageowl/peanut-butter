@@ -1,5 +1,5 @@
 use crate::value::{function::FFIWrapper, Call};
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 use hashbrown::HashMap;
 
