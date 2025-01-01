@@ -1,7 +1,8 @@
 use hashbrown::HashMap;
 
-use crate::value::{Key, Value};
+use crate::value::{Comparison, Key, Value};
 
+#[derive(Clone)]
 pub enum Instruction {
     Set {
         up: usize,
@@ -13,7 +14,11 @@ pub enum Instruction {
         key: Key,
         value: Reporter,
     },
-    Call(Reporter, Vec<Reporter>),
+    SetRef {
+        reference: Reporter,
+        value: Reporter,
+    },
+    Void(Reporter),
 
     Import {
         module: String,
@@ -22,11 +27,17 @@ pub enum Instruction {
     },
 }
 
+#[derive(Clone)]
 pub enum Reporter {
     Const(Value),
     Table(HashMap<Key, Reporter>),
-    Lambda(InstructionSet),
+    Lambda(Box<Reporter>),
 
+    /// Goes up the tree `up` times, then gets item `idx`.
+    Get {
+        up: usize,
+        idx: usize,
+    },
     RefLocal {
         up: usize,
         idx: usize,
@@ -35,12 +46,7 @@ pub enum Reporter {
         tbl: Box<Reporter>,
         key: Key,
     },
-
-    /// Goes up the tree `up` times, then gets item `idx`.
-    Get {
-        up: usize,
-        idx: usize,
-    },
+    Deref(Box<Reporter>),
     /// Access property `key` of table `tbl`
     Property {
         tbl: Box<Reporter>,
@@ -48,9 +54,46 @@ pub enum Reporter {
     },
     /// Call a function with arguments.
     Call(Box<Reporter>, Vec<Reporter>),
+
+    Block(InstructionSet),
+    If {
+        blocks: Vec<(Reporter, InstructionSet)>,
+        else_block: Option<InstructionSet>,
+    },
+
+    Arithmetic {
+        a: Box<Reporter>,
+        b: Box<Reporter>,
+        op: ArithmaticOperation,
+    },
+    BooleanOp {
+        a: Box<Reporter>,
+        b: Box<Reporter>,
+        and: bool,
+    },
+    Concat {
+        a: Box<Reporter>,
+        b: Box<Reporter>,
+    },
+    Comparison {
+        a: Box<Reporter>,
+        b: Box<Reporter>,
+        op: Comparison,
+    },
+    Negation(Box<Reporter>),
+    BooleanNot(Box<Reporter>),
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Debug)]
+pub enum ArithmaticOperation {
+    Addition,
+    Subtraction,
+    Multiplication,
+    Division,
+    Exponentation,
+}
+
+#[derive(Default, Clone)]
 pub struct InstructionSet {
     pub allocation: usize,
     pub instructions: Vec<Instruction>,

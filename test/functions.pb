@@ -6,9 +6,6 @@ fn call_twice(cb: fn()) = {
 	cb();
 };
 
-fn decorate(func: fn()) -> fn()
-	= fn() = func();
-
 mut i = 0;
 greet("world");
 call_twice(fn() = {

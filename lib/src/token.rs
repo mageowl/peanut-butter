@@ -54,4 +54,5 @@ pub enum Token {
     KeywordElse,
     KeywordRef,
     KeywordAs,
+    KeywordEnum,
 }

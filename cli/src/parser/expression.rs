@@ -6,7 +6,7 @@ use pbscript_lib::{
     error::{Error, Result},
     span::{Chunk, Span},
     token::Token,
-    value::Key,
+    value::{Comparison, Key},
 };
 
 use super::{block::Block, type_name::TypeName, Parameter, Parse};
@@ -65,31 +65,9 @@ pub enum Operation {
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
-pub enum Comparison {
-    Equals,
-    NotEquals,
-    LessThan,
-    LessThanEqual,
-    GreaterThan,
-    GreaterThanEqual,
-}
-
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum UnaryOperation {
     BooleanNot,
     Negation,
-}
-
-// Order for comparisons doesn't matter.
-impl PartialOrd for Comparison {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-impl Ord for Comparison {
-    fn cmp(&self, _other: &Self) -> std::cmp::Ordering {
-        std::cmp::Ordering::Equal
-    }
 }
 
 impl Expression {

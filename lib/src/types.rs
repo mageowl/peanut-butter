@@ -14,6 +14,7 @@ pub enum Type {
         return_type: Box<Type>,
     },
     Ref(Box<Type>),
+    Enum(HashMap<String, Type>),
     List(Box<Type>),
     Map(Box<Type>),
 }
@@ -29,6 +30,7 @@ impl Type {
             Type::Table(_) => "table",
             Type::Fn { .. } => "function",
             Type::Ref(_) => "reference",
+            Type::Enum(_) => "enum",
             Type::List(_) => "list",
             Type::Map(_) => "map",
         }
@@ -59,6 +61,7 @@ impl Type {
         }
     }
 
+    /// Returns true if `self` is "less-than or equal to" `other`.
     pub fn matches(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::String, Self::String) => true,

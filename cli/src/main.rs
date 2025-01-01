@@ -2,6 +2,7 @@
 
 use std::{env::args, fs, path::PathBuf};
 
+use compiler::compile;
 use lexer::TokenStream;
 use parser::{program::Program, Parse};
 use pbscript_lib::{error::Result, module_tree::ModuleTree};
@@ -13,9 +14,10 @@ mod prelude;
 
 pub fn interpret(code: &str, mut _module_tree: ModuleTree) -> Result<()> {
     let mut token_stream = TokenStream::from(code);
-    let mut _program = Program::parse(&mut token_stream)?;
+    let program = Program::parse(&mut token_stream)?;
 
     let _prelude = prelude::build();
+    let instructions = compile(program.data);
     todo!()
 }
 
