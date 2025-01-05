@@ -1,15 +1,21 @@
+use std::fmt::write;
+
 use hashbrown::HashMap;
 use pbscript_lib::{
     error::{Error, Result},
-    instruction::Reporter,
-    span::Chunk,
+    instruction::{InstructionSet, Reporter},
+    span::{Chunk, Span},
     types::Type,
     value::{Key, Value},
 };
 
-use crate::parser::expression::Expression;
+use crate::parser::{block::Block, expression::Expression};
 
-use super::{statement::compile_fn, ty::compile_ty, Scope};
+use super::{
+    statement::{compile_fn, compile_statement},
+    ty::compile_ty,
+    Scope,
+};
 
 pub fn compile_expression(
     expression: Chunk<Expression>,
@@ -135,7 +141,7 @@ pub fn compile_expression(
                 },
             ))
         }
-        Expression::DynAccess(target, key) => todo!(),
+        Expression::DynAccess(_, _) => todo!(),
         Expression::Call { value, args } => {
             let fn_span = value.span;
             let (ty, rep) = compile_expression(value.span.with(*value.data), scope)?;
@@ -178,11 +184,105 @@ pub fn compile_expression(
 
             Ok((return_ty, Reporter::Call(Box::new(rep), arg_reps)))
         }
-        Expression::Block(block) => todo!(),
-        Expression::If { blocks, else_block } => todo!(),
+        Expression::Block(block) => {
+            let (ty, instructions, tail) = compile_block(block, scope)?;
+            Ok((ty, Reporter::Block(instructions, tail.map(Box::new))))
+        }
+        Expression::If { blocks, else_block } => {
+            let mut prev_ty: Option<Type> = None;
+            let mut compiled_blocks = Vec::new();
+            for (cond, block) in blocks {
+                let cond_span = cond.span;
+
+                let (ty, cond) = compile_expression(cond, scope)?;
+                if !Type::Boolean.matches(&ty) {
+                    return Err(Error::new(
+                        cond_span,
+                        format!(
+                            "A condition must be a boolean, but this is a {}.",
+                            ty.simple_name()
+                        ),
+                    ));
+                }
+
+                let tail_span = block
+                    .tail
+                    .as_ref()
+                    .map_or_else(|| Span::char(block.span.end), |t| t.span);
+                let (ty, instructions, tail) = compile_block(block.data, scope)?;
+                if let Some(prev_ty) = &prev_ty {
+                    if !prev_ty.matches(&ty) {
+                        return Err(Error::new(
+                            tail_span,
+                            format!(
+                                "All previous if blocks are of type {}, but this one is different.",
+                                prev_ty.simple_name()
+                            ),
+                        ));
+                    }
+                } else {
+                    let _ = prev_ty.insert(ty);
+                }
+
+                compiled_blocks.push((cond, instructions, tail));
+            }
+            let prev_ty = prev_ty.unwrap_or(Type::Unit);
+
+            let else_block = if let Some(Chunk { span, data: block }) = else_block {
+                let tail_span = block
+                    .tail
+                    .as_ref()
+                    .map_or_else(|| Span::char(span.end), |t| t.span);
+                let (ty, instructions, tail) = compile_block(block, scope)?;
+                if !prev_ty.matches(&ty) {
+                    return Err(Error::new(
+                        tail_span,
+                        format!(
+                            "All previous if blocks are of type {}, but the else block is different.",
+                            prev_ty.simple_name()
+                        )
+                    ));
+                }
+
+                Some((instructions, tail.map(Box::new)))
+            } else {
+                None
+            };
+
+            Ok((
+                prev_ty,
+                Reporter::If {
+                    blocks: compiled_blocks,
+                    else_block,
+                },
+            ))
+        }
         Expression::BinaryOp { a, b, op } => todo!(),
         Expression::UnaryOp { a, op } => todo!(),
     }
+}
+
+fn compile_block(
+    block: Block,
+    scope: &mut Scope,
+) -> Result<(Type, InstructionSet, Option<Reporter>)> {
+    let mut scope = Scope {
+        variables: HashMap::new(),
+        instructions: InstructionSet::default(),
+        parent: Some(scope),
+    };
+
+    for statement in block.body {
+        compile_statement(statement, &mut scope)?;
+    }
+
+    let (ty, rep) = block
+        .tail
+        .map(|tail| compile_expression(tail.span.with(*tail.data), &mut scope))
+        .transpose()?
+        .unzip();
+
+    Ok((ty.unwrap_or(Type::Unit), scope.instructions, rep))
 }
 
 pub fn is_mut(expression: Chunk<&Expression>, scope: &Scope) -> bool {

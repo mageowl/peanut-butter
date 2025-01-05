@@ -16,7 +16,6 @@ struct Variable {
     ty: Type,
     mutable: bool,
     initialized: bool,
-    initialized_in: usize,
 
     idx: usize,
 }
@@ -27,7 +26,6 @@ impl Default for Variable {
             ty: Type::Unit,
             mutable: false,
             initialized: true,
-            initialized_in: 0,
             idx: usize::MAX,
         }
     }
@@ -36,7 +34,6 @@ impl Default for Variable {
 struct Scope<'a> {
     variables: HashMap<String, Variable>,
     instructions: InstructionSet,
-    branches: usize,
 
     parent: Option<&'a Scope<'a>>,
 }
@@ -56,7 +53,6 @@ pub fn compile(tree: Program) -> Result<InstructionSet> {
     let mut scope = Scope {
         variables: HashMap::new(),
         instructions: InstructionSet::default(),
-        branches: 0,
         parent: None,
     };
 

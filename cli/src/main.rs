@@ -17,8 +17,9 @@ pub fn interpret(code: &str, mut _module_tree: ModuleTree) -> Result<()> {
     let program = Program::parse(&mut token_stream)?;
 
     let _prelude = prelude::build();
-    let instructions = compile(program.data);
-    todo!()
+    let instructions = compile(program.data)?;
+    dbg!(instructions);
+    Ok(())
 }
 
 fn main() {

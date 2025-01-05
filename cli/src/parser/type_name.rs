@@ -18,6 +18,7 @@ pub enum TypeName {
     },
     Table(HashMap<Chunk<Key>, Chunk<TypeName>>),
     Reference(Chunk<Box<TypeName>>),
+    Enum(HashMap<Chunk<String>, Chunk<TypeName>>),
     Unit,
     Function {
         parameters: Vec<Chunk<TypeName>>,
@@ -223,6 +224,60 @@ impl TypeName {
             return_ty: return_ty.as_box(),
         }))
     }
+
+    fn parse_enum(source: &mut TokenStream) -> Result<Chunk<Self>> {
+        /*let span = parse_token(source, Token::KeywordEnum, "Expected enum type.")?;
+        parse_token(
+            source,
+            Token::BraceOpen,
+            "Expected open brace for enum variants.",
+        )?;
+
+        let mut map = HashMap::new();
+        let mut trailing_delimiter = true;
+        let end_span;
+
+        loop {
+            if let Some(Token::BraceClose) = source.peek_token() {
+                let Some(Ok(Chunk { span, .. })) = source.next() else {
+                    unreachable!()
+                };
+                end_span = span;
+                break;
+            } else if trailing_delimiter {
+                trailing_delimiter = false;
+
+                let name = parse_ident(source, "Expected a label for an enum variant")?;
+                parse_token(
+                    source,
+                    Token::Colon,
+                    "Expected an colon to separate the label from the type.",
+                )?;
+                map.insert(name, Self::parse(source)?);
+            } else {
+                return Err(match source.next() {
+                    Some(Ok(token)) => Error::new(token.span, "Expected a comma."),
+                    Some(Err(err)) => err,
+                    None => Error::new(
+                        Span::char(source.pos()),
+                        "Expected a closing parenthesis for fn type arguments.",
+                    ),
+                });
+            }
+
+            if let Some(Token::Semicolon) = source.peek_token() {
+                trailing_delimiter = true;
+                source.next();
+            }
+        }
+
+        Ok(Span {
+            start: span.start,
+            end: end_span.end,
+        }
+        .with(Self::Enum(map)))*/
+        todo!()
+    }
 }
 
 impl Parse for TypeName {
@@ -231,6 +286,7 @@ impl Parse for TypeName {
             Some(Token::KeywordRef) => Self::parse_reference(source),
             Some(Token::BracketOpen) => Self::parse_table(source),
             Some(Token::KeywordFunction) => Self::parse_fn(source),
+            Some(Token::KeywordEnum) => Self::parse_enum(source),
             _ => Self::parse_named(source),
         }
     }

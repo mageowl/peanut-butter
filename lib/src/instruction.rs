@@ -2,7 +2,7 @@ use hashbrown::HashMap;
 
 use crate::value::{Comparison, Key, Value};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Instruction {
     Set {
         up: usize,
@@ -23,11 +23,11 @@ pub enum Instruction {
     Import {
         module: String,
         item: String,
-        index: usize,
+        idx: usize,
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Reporter {
     Const(Value),
     Table(HashMap<Key, Reporter>),
@@ -55,10 +55,10 @@ pub enum Reporter {
     /// Call a function with arguments.
     Call(Box<Reporter>, Vec<Reporter>),
 
-    Block(InstructionSet),
+    Block(InstructionSet, Option<Box<Reporter>>),
     If {
-        blocks: Vec<(Reporter, InstructionSet)>,
-        else_block: Option<InstructionSet>,
+        blocks: Vec<(Reporter, InstructionSet, Option<Reporter>)>,
+        else_block: Option<(InstructionSet, Option<Box<Reporter>>)>,
     },
 
     Arithmetic {
@@ -93,7 +93,7 @@ pub enum ArithmaticOperation {
     Exponentation,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct InstructionSet {
     pub allocation: usize,
     pub instructions: Vec<Instruction>,

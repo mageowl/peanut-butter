@@ -104,7 +104,7 @@ pub trait IntoType: From<Value> + Into<Value> {
 }
 
 macro_rules! impl_into_type {
-    ($rust_ty: ty => $pb_ty: expr, $($generic: ident),*) => {
+    ($rust_ty: ty => $pb_ty: expr $(, $generic: ident)*) => {
         impl<$($generic: IntoType),*> IntoType for $rust_ty {
             fn into_type() -> Type {
                 $pb_ty
@@ -113,9 +113,9 @@ macro_rules! impl_into_type {
     };
 }
 
-impl_into_type!(() => Type::Unit,);
-impl_into_type!(String => Type::String,);
-impl_into_type!(f64 => Type::Number,);
-impl_into_type!(bool => Type::Boolean,);
+impl_into_type!(() => Type::Unit);
+impl_into_type!(String => Type::String);
+impl_into_type!(f64 => Type::Number);
+impl_into_type!(bool => Type::Boolean);
 impl_into_type!(Vec<T> => Type::List(Box::new(T::into_type())), T);
 impl_into_type!(HashMap<Key, T> => Type::Map(Box::new(T::into_type())), T);

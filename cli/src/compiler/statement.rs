@@ -60,7 +60,6 @@ pub fn compile_statement(statement: Chunk<Statement>, scope: &mut Scope) -> Resu
                     mutable,
                     initialized: rep.is_some(),
                     idx,
-                    ..Default::default()
                 },
             );
             scope.instructions.allocation += 1;
@@ -112,7 +111,6 @@ pub fn compile_statement(statement: Chunk<Statement>, scope: &mut Scope) -> Resu
                     mutable,
                     initialized: true,
                     idx,
-                    ..Default::default()
                 },
             );
             scope.instructions.allocation += 1;
@@ -280,7 +278,6 @@ pub fn compile_fn(
             })
             .collect::<Result<_>>()?,
         instructions: InstructionSet::default(),
-        branches: 1,
 
         parent: Some(parent),
     };
