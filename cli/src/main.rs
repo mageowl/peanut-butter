@@ -2,7 +2,7 @@
 
 use std::{env::args, fs, path::PathBuf};
 
-use compiler::compile;
+use compiler::{compile, PreludeMap};
 use lexer::TokenStream;
 use parser::{program::Program, Parse};
 use pbscript_lib::{error::Result, module_tree::ModuleTree};
@@ -16,8 +16,10 @@ pub fn interpret(code: &str, mut _module_tree: ModuleTree) -> Result<()> {
     let mut token_stream = TokenStream::from(code);
     let program = Program::parse(&mut token_stream)?;
 
-    let _prelude = prelude::build();
-    let instructions = compile(program.data)?;
+    let prelude = prelude::build();
+    let prelude_map = PreludeMap::from(&prelude);
+    let instructions = compile(program.data, Some(&prelude_map))?;
+
     dbg!(instructions);
     Ok(())
 }
@@ -29,6 +31,32 @@ fn main() {
 
     let module_tree = ModuleTree::new();
     if let Err(error) = interpret(&file, module_tree) {
-        println!("{error}")
+        let span = error.stack[0].span;
+        let src = span.read_from(&file);
+
+        let ln_len = span.end.ln.ilog10() + 1;
+
+        for (i, line) in src.lines().enumerate() {
+            let ln = span.start.ln + i;
+            let ln_pad = (ln_len - ln.ilog10() + 1) as usize;
+
+            const HIGHLIGHT: &str = "\x1b[31;1m";
+            let mut line = line.replace("\t", "    ");
+            if i == 0 {
+                line.insert_str(span.start.col - 1, HIGHLIGHT)
+            } else {
+                if ln == span.end.ln {
+                    line.insert_str(span.end.col - 1, "\x1b[0m")
+                }
+                line.insert_str(0, HIGHLIGHT);
+            }
+
+            println!(
+                "\x1b[2m{pad}{ln} |\x1b[22m  {line}\x1b[0m",
+                pad = " ".repeat(ln_pad)
+            );
+        }
+
+        println!("\n\x1b[31;1merror\x1b[0m: {msg}", msg = error.message);
     }
 }

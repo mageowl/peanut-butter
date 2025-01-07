@@ -1,20 +1,21 @@
-use std::fmt::write;
-
 use hashbrown::HashMap;
 use pbscript_lib::{
     error::{Error, Result},
-    instruction::{InstructionSet, Reporter},
+    instruction::{ArithmaticOperation, InstructionSet, Reporter},
     span::{Chunk, Span},
     types::Type,
-    value::{Key, Value},
+    value::{Comparison, Key, Value},
 };
 
-use crate::parser::{block::Block, expression::Expression};
+use crate::parser::{
+    block::Block,
+    expression::{Expression, Operation},
+};
 
 use super::{
     statement::{compile_fn, compile_statement},
     ty::compile_ty,
-    Scope,
+    Scope, VarMap,
 };
 
 pub fn compile_expression(
@@ -173,6 +174,7 @@ pub fn compile_expression(
 
             let mut arg_reps = Vec::new();
             for (param, arg) in parameters.iter().zip(args.into_iter()) {
+                dbg!(&arg);
                 let span = arg.span;
                 let (ty, rep) = compile_expression(arg, scope)?;
 
@@ -257,7 +259,149 @@ pub fn compile_expression(
                 },
             ))
         }
-        Expression::BinaryOp { a, b, op } => todo!(),
+        Expression::BinaryOp { a, b, op } => match op.data {
+            Operation::Concatination => {
+                let (a_span, b_span) = (a.span, b.span);
+                let (a_ty, a) = compile_expression(a.span.with(*a.data), scope)?;
+                let (b_ty, b) = compile_expression(b.span.with(*b.data), scope)?;
+
+                if !Type::String.matches(&a_ty) {
+                    return Err(Error::new(
+                        a_span,
+                        "This expression is not a string. Expected a string for concatination.",
+                    ));
+                }
+                if !Type::String.matches(&b_ty) {
+                    return Err(Error::new(
+                        b_span,
+                        "This expression is not a string. Expected a string for concatination.",
+                    ));
+                }
+
+                Ok((
+                    Type::String,
+                    Reporter::Concat {
+                        a: Box::new(a),
+                        b: Box::new(b),
+                    },
+                ))
+            }
+            Operation::Exponentation
+            | Operation::Multiplication
+            | Operation::Division
+            | Operation::Addition
+            | Operation::Subtraction => {
+                let (a_span, b_span) = (a.span, b.span);
+                let (a_ty, a) = compile_expression(a.span.with(*a.data), scope)?;
+                let (b_ty, b) = compile_expression(b.span.with(*b.data), scope)?;
+
+                if !Type::Number.matches(&a_ty) {
+                    return Err(Error::new(
+                        a_span,
+                        "This expression is not a number. Expected a number for arthimetic.",
+                    ));
+                }
+                if !Type::Number.matches(&b_ty) {
+                    return Err(Error::new(
+                        b_span,
+                        "This expression is not a number. Expected a number for arthimetic.",
+                    ));
+                }
+
+                Ok((
+                    Type::Number,
+                    Reporter::Arithmetic {
+                        a: Box::new(a),
+                        b: Box::new(b),
+                        op: match op.data {
+                            Operation::Exponentation => ArithmaticOperation::Exponentation,
+                            Operation::Multiplication => ArithmaticOperation::Multiplication,
+                            Operation::Division => ArithmaticOperation::Division,
+                            Operation::Addition => ArithmaticOperation::Addition,
+                            Operation::Subtraction => ArithmaticOperation::Subtraction,
+                            _ => unreachable!(),
+                        },
+                    },
+                ))
+            }
+            Operation::Comparison(Comparison::Equals) => {
+                let (a_span, b_span) = (a.span, b.span);
+                let (a_ty, a) = compile_expression(a.span.with(*a.data), scope)?;
+                let (b_ty, b) = compile_expression(b.span.with(*b.data), scope)?;
+
+                if a_ty != b_ty {
+                    return Err(Error::new(
+                        a_span,
+                        "These expressions are not of the same type, so they can never be equal.",
+                    ));
+                }
+
+                Ok((
+                    Type::Boolean,
+                    Reporter::Equality {
+                        a: Box::new(a),
+                        b: Box::new(b),
+                    },
+                ))
+            }
+            Operation::Comparison(comp) => {
+                let (a_span, b_span) = (a.span, b.span);
+                let (a_ty, a) = compile_expression(a.span.with(*a.data), scope)?;
+                let (b_ty, b) = compile_expression(b.span.with(*b.data), scope)?;
+
+                if !Type::Number.matches(&a_ty) {
+                    return Err(Error::new(
+                        a_span,
+                        "Only numbers can be compared with an inequality.",
+                    ));
+                }
+                if !Type::Number.matches(&b_ty) {
+                    return Err(Error::new(
+                        b_span,
+                        "Only numbers can be compared with an inequality.",
+                    ));
+                }
+
+                Ok((
+                    Type::Boolean,
+                    Reporter::Inequality {
+                        a: Box::new(a),
+                        b: Box::new(b),
+                        op: comp,
+                    },
+                ))
+            }
+            Operation::BooleanAnd | Operation::BooleanOr => {
+                let (a_span, b_span) = (a.span, b.span);
+                let (a_ty, a) = compile_expression(a.span.with(*a.data), scope)?;
+                let (b_ty, b) = compile_expression(b.span.with(*b.data), scope)?;
+
+                if !Type::Boolean.matches(&a_ty) {
+                    return Err(Error::new(
+                        a_span,
+                        "Boolean operations like && and || can only be used on booleans.",
+                    ));
+                }
+                if !Type::Boolean.matches(&b_ty) {
+                    return Err(Error::new(
+                        b_span,
+                        "Boolean operations like && and || can only be used on booleans.",
+                    ));
+                }
+
+                Ok((
+                    Type::Boolean,
+                    Reporter::BooleanOp {
+                        a: Box::new(a),
+                        b: Box::new(b),
+                        and: op.data == Operation::BooleanAnd,
+                    },
+                ))
+            }
+            Operation::Access => {
+                unreachable!("BinaryOp is not used for access operators (only sorting)")
+            }
+        },
         Expression::UnaryOp { a, op } => todo!(),
     }
 }

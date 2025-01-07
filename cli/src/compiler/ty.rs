@@ -43,7 +43,12 @@ pub fn compile_ty(type_name: Chunk<TypeName>, scope: &mut Scope) -> Result<Type>
             chunk.span.with(*chunk.data),
             scope,
         )?))),
-        TypeName::Enum(hash_map) => todo!(),
+        TypeName::Union(variants) => Ok(Type::Union(
+            variants
+                .into_iter()
+                .map(|v| compile_ty(v, scope))
+                .collect::<Result<_>>()?,
+        )),
         TypeName::Unit => Ok(Type::Unit),
         TypeName::Function {
             parameters,

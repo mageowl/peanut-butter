@@ -4,7 +4,6 @@ use super::{statement::Statement, Parse};
 use crate::lexer::TokenStream;
 use pbscript_lib::{
     error::{Error, Result},
-    module_tree::Scope,
     span::{Chunk, Span},
     token::Token,
 };
@@ -12,7 +11,6 @@ use pbscript_lib::{
 #[derive(Debug)]
 pub struct Program {
     pub body: Vec<Chunk<Statement>>,
-    pub scope: Option<Rc<Scope>>,
 }
 
 impl Parse for Program {
@@ -47,6 +45,6 @@ impl Parse for Program {
             start,
             end: source.pos(),
         }
-        .with(Self { body, scope: None }))
+        .with(Self { body }))
     }
 }

@@ -1,7 +1,7 @@
 use super::{
     expression::{compile_expression, get_key, is_mut},
     ty::compile_ty,
-    Scope, Variable,
+    Scope, VarMap, Variable,
 };
 use crate::parser::{
     expression::Expression,

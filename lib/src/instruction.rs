@@ -75,7 +75,11 @@ pub enum Reporter {
         a: Box<Reporter>,
         b: Box<Reporter>,
     },
-    Comparison {
+    Equality {
+        a: Box<Reporter>,
+        b: Box<Reporter>,
+    },
+    Inequality {
         a: Box<Reporter>,
         b: Box<Reporter>,
         op: Comparison,

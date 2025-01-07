@@ -14,7 +14,7 @@ pub enum Type {
         return_type: Box<Type>,
     },
     Ref(Box<Type>),
-    Enum(HashMap<String, Type>),
+    Union(Vec<Type>),
     List(Box<Type>),
     Map(Box<Type>),
 }
@@ -30,7 +30,7 @@ impl Type {
             Type::Table(_) => "table",
             Type::Fn { .. } => "function",
             Type::Ref(_) => "reference",
-            Type::Enum(_) => "enum",
+            Type::Union(_) => "union",
             Type::List(_) => "list",
             Type::Map(_) => "map",
         }
@@ -81,9 +81,7 @@ impl Type {
                     return_type: r2,
                 },
             ) => p1 == p2 && r1 == r2,
-            (Self::Ref(t1), Self::Ref(t2)) => t1 == t2,
-            (Self::List(t1), Self::List(t2)) => t1 == t2,
-            (Self::Map(t1), Self::List(t2)) => t1 == t2,
+            (Self::Ref(t1), Self::Ref(t2)) => t1.matches(t2),
 
             (Self::List(a), b) | (b, Self::List(a)) => b.is_list(a),
             (Self::Map(a), b) | (b, Self::Map(a)) => b.is_map(a),
@@ -95,7 +93,26 @@ impl Type {
 
 impl PartialEq for Type {
     fn eq(&self, other: &Self) -> bool {
-        self.matches(other)
+        match (self, other) {
+            (Self::String, Self::String) => true,
+            (Self::Number, Self::Number) => true,
+            (Self::Boolean, Self::Boolean) => true,
+            (Self::Table(m1), Self::Table(m2)) => m1 == m2,
+            (
+                Self::Fn {
+                    parameters: p1,
+                    return_type: r1,
+                },
+                Self::Fn {
+                    parameters: p2,
+                    return_type: r2,
+                },
+            ) => p1 == p2 && r1 == r2,
+            (Self::Ref(t1), Self::Ref(t2)) => t1 == t2,
+            (Self::List(a), b) | (b, Self::List(a)) => b.is_list(a),
+            (Self::Map(a), b) | (b, Self::Map(a)) => b.is_map(a),
+            _ => false,
+        }
     }
 }
 

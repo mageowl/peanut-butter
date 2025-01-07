@@ -18,7 +18,7 @@ pub enum TypeName {
     },
     Table(HashMap<Chunk<Key>, Chunk<TypeName>>),
     Reference(Chunk<Box<TypeName>>),
-    Enum(HashMap<Chunk<String>, Chunk<TypeName>>),
+    Union(Vec<Chunk<TypeName>>),
     Unit,
     Function {
         parameters: Vec<Chunk<TypeName>>,
@@ -278,16 +278,37 @@ impl TypeName {
         .with(Self::Enum(map)))*/
         todo!()
     }
-}
 
-impl Parse for TypeName {
-    fn parse(source: &mut TokenStream) -> Result<Chunk<Self>> {
+    fn parse_single(source: &mut TokenStream) -> Result<Chunk<Self>> {
         match source.peek_token() {
             Some(Token::KeywordRef) => Self::parse_reference(source),
             Some(Token::BracketOpen) => Self::parse_table(source),
             Some(Token::KeywordFunction) => Self::parse_fn(source),
-            Some(Token::KeywordEnum) => Self::parse_enum(source),
             _ => Self::parse_named(source),
+        }
+    }
+}
+
+impl Parse for TypeName {
+    fn parse(source: &mut TokenStream) -> Result<Chunk<Self>> {
+        let type_name = Self::parse_single(source)?;
+
+        if let Some(Token::Pipe) = source.peek_token() {
+            let start = type_name.span.start;
+            let mut variants = Vec::from([type_name]);
+
+            while let Some(Token::Pipe) = source.peek_token() {
+                source.next();
+                variants.push(Self::parse_single(source)?);
+            }
+
+            Ok(Span {
+                start,
+                end: source.pos(),
+            }
+            .with(Self::Union(variants)))
+        } else {
+            Ok(type_name)
         }
     }
 }

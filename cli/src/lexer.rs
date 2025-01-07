@@ -258,7 +258,6 @@ impl TokenStream<'_> {
                     "type" => Some(Ok(span.with(Token::KeywordType))),
 
                     "with" => Some(Ok(span.with(Token::KeywordWith))),
-                    "enum" => Some(Ok(span.with(Token::KeywordEnum))),
 
                     "if" => Some(Ok(span.with(Token::KeywordIf))),
                     "else" => Some(Ok(span.with(Token::KeywordElse))),
@@ -322,6 +321,7 @@ impl TokenStream<'_> {
             ',' => operator!(Comma, self.pos),
             '.' => operator!(Dot, self.pos),
             '#' => operator!(Hash, self.pos),
+            '|' => operator!(Pipe, self.pos),
             '=' => operator!(Equals, self.pos),
             '+' => operator!(Add, self.pos),
             '-' => operator!(Sub, self.pos),

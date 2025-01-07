@@ -99,6 +99,37 @@ impl Span {
     pub fn with<T>(self, data: T) -> Chunk<T> {
         Chunk { span: self, data }
     }
+
+    pub fn read_from<'a>(&self, file: &'a str) -> &'a str {
+        let mut chars = file.chars();
+        let mut lines = 1;
+
+        let mut start = 0;
+        if self.start.ln > 0 {
+            for c in chars.by_ref() {
+                start += 1;
+                if c == '\n' {
+                    lines += 1;
+                    if lines >= self.start.ln {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let mut end = start;
+        for c in chars {
+            end += 1;
+            if c == '\n' {
+                lines += 1;
+                if lines > self.end.ln {
+                    break;
+                }
+            }
+        }
+
+        &file[start..end]
+    }
 }
 
 impl Display for Span {

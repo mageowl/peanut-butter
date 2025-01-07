@@ -16,6 +16,7 @@ pub enum Token {
     Comma,
     Dot,
     Hash,
+    Pipe,
     Equals,
     Add,
     AddAssign,
@@ -54,5 +55,4 @@ pub enum Token {
     KeywordElse,
     KeywordRef,
     KeywordAs,
-    KeywordEnum,
 }
