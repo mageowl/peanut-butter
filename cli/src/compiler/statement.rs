@@ -243,6 +243,62 @@ pub fn compile_statement(statement: Chunk<Statement>, scope: &mut Scope) -> Resu
 
                 Ok(())
             }
+            Expression::Deref(target) => {
+                let (ref_ty, reference) =
+                    compile_expression(target.span.with(*target.data), scope)?;
+                let ref_ty = match ref_ty {
+                    Type::Ref(ty) => *ty,
+                    _ => {
+                        return Err(Error::new(
+                            target.span,
+                            format!("You cannot dereference a {}.", ref_ty.simple_name()),
+                        ))
+                    }
+                };
+
+                let value_span = value.span;
+                let (ty, mut rep) = compile_expression(value, scope)?;
+
+                if op != AssignmentOperator::Assign {
+                    if ty
+                        != (match op {
+                            AssignmentOperator::AddAssign => Type::Number,
+                            _ => Type::Number,
+                        })
+                    {
+                        return Err(Error::new(
+                            value_span,
+                            "Only numbers can be used for arithmatic.",
+                        ));
+                    }
+
+                    rep = Reporter::Arithmetic {
+                        a: Box::new(Reporter::Deref(Box::new(reference.clone()))),
+                        b: Box::new(rep),
+                        op: match op {
+                            AssignmentOperator::AddAssign => ArithmaticOperation::Addition,
+                            AssignmentOperator::SubAssign => ArithmaticOperation::Subtraction,
+                            AssignmentOperator::MulAssign => ArithmaticOperation::Multiplication,
+                            AssignmentOperator::DivAssign => ArithmaticOperation::Division,
+                            _ => unreachable!(),
+                        },
+                    }
+                }
+
+                if !ref_ty.matches(&ty) {
+                    return Err(Error::new(
+                        value_span,
+                        "This expression does not match the type of the property.",
+                    ));
+                }
+
+                scope.instructions.push(Instruction::SetRef {
+                    reference,
+                    value: rep,
+                });
+
+                Ok(())
+            }
             _ => Err(Error::new(
                 target.span,
                 "This expression is not mutable, but you are trying to assign a value to it.",

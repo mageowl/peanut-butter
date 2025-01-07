@@ -42,17 +42,14 @@ fn main() {
         let src = span.read_from(&file);
 
         let ln_len = span.end.ln.ilog10() + 1;
-        println!(
-            "\x1b[2m{pad}|\x1b[22m",
-            pad = " ".repeat(ln_len as usize + 1)
-        );
+        let offset = span.start.ln.max(1) - 1;
 
         for (i, line) in src.lines().enumerate() {
-            let ln = span.start.ln + i;
+            let ln = offset + i;
             let ln_pad = (ln_len - ln.ilog10() - 1) as usize;
 
             const HIGHLIGHT: &str = "\x1b[31;1m";
-            let mut line = line.replace("\t", "    ");
+            let mut line = line.to_owned();
 
             if ln == span.end.ln {
                 line.insert_str(span.end.col - 1, "\x1b[0m")
@@ -63,16 +60,13 @@ fn main() {
                 line.insert_str(0, HIGHLIGHT);
             }
 
+            line = line.replace("\t", "    ");
+
             println!(
                 "\x1b[2m{pad}{ln} |\x1b[22m  {line}\x1b[0m",
                 pad = " ".repeat(ln_pad)
             );
         }
-
-        println!(
-            "\x1b[2m{pad}|\x1b[22m",
-            pad = " ".repeat(ln_len as usize + 1)
-        );
 
         let indicies = error
             .message

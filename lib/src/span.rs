@@ -105,12 +105,12 @@ impl Span {
         let mut lines = 1;
 
         let mut start = 0;
-        if self.start.ln > 1 {
+        if self.start.ln > 2 {
             for c in chars.by_ref() {
                 start += 1;
                 if c == '\n' {
                     lines += 1;
-                    if lines >= self.start.ln {
+                    if lines >= self.start.ln - 1 {
                         break;
                     }
                 }
@@ -122,7 +122,7 @@ impl Span {
             end += 1;
             if c == '\n' {
                 lines += 1;
-                if lines > self.end.ln {
+                if lines > self.end.ln + 1 {
                     break;
                 }
             }
