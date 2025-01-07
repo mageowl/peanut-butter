@@ -1,0 +1,9 @@
+let(<a>): 1
+let(<b>): 1
+let(<temp>): -1
+repeat(100): {
+	temp: +(a, b)
+	a: b
+	b: temp
+}
+print(b)

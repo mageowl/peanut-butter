@@ -1,5 +1,5 @@
 use crate::value::{function::FFIWrapper, Call};
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 use hashbrown::HashMap;
 
@@ -36,7 +36,7 @@ impl ModuleBuilder {
                         parameters: T::parameters(),
                         return_type: Box::new(T::return_ty()),
                     },
-                    value: Value::Function(Rc::new(func.into_wrapper())),
+                    value: Rc::new(RefCell::new(Value::Function(Rc::new(func.into_wrapper())))),
                 },
             );
             self

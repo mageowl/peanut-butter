@@ -1,3 +1,5 @@
+use std::mem;
+
 use hashbrown::HashMap;
 use pbscript_lib::{
     error::{Error, Result},
@@ -321,30 +323,40 @@ This block is of type: {ty}"
                     },
                 ))
             }
-            Operation::Comparison(Comparison::Equals) => {
+            Operation::Comparison(comp @ (Comparison::Equals | Comparison::NotEquals)) => {
                 let (a_span, b_span) = (a.span, b.span);
                 let (a_ty, a) = compile_expression(a.span.with(*a.data), scope)?;
                 let (b_ty, b) = compile_expression(b.span.with(*b.data), scope)?;
 
                 if a_ty != b_ty {
                     return Err(Error::new(
-                        a_span,
+                        Span {
+                            start: a_span.start,
+                            end: b_span.end,
+                        },
                         "These expressions are not of the same type, so they can never be equal.",
                     ));
                 }
 
                 Ok((
                     Type::Boolean,
-                    Reporter::Equality {
-                        a: Box::new(a),
-                        b: Box::new(b),
+                    if comp == Comparison::NotEquals {
+                        Reporter::BooleanNot(Box::new(Reporter::Equality {
+                            a: Box::new(a),
+                            b: Box::new(b),
+                        }))
+                    } else {
+                        Reporter::Equality {
+                            a: Box::new(a),
+                            b: Box::new(b),
+                        }
                     },
                 ))
             }
-            Operation::Comparison(comp) => {
+            Operation::Comparison(mut comp) => {
                 let (a_span, b_span) = (a.span, b.span);
-                let (a_ty, a) = compile_expression(a.span.with(*a.data), scope)?;
-                let (b_ty, b) = compile_expression(b.span.with(*b.data), scope)?;
+                let (a_ty, mut a) = compile_expression(a.span.with(*a.data), scope)?;
+                let (b_ty, mut b) = compile_expression(b.span.with(*b.data), scope)?;
 
                 if !Type::Number.matches(&a_ty) {
                     return Err(Error::new(
@@ -357,6 +369,15 @@ This block is of type: {ty}"
                         b_span,
                         "Only numbers can be compared with an inequality.",
                     ));
+                }
+
+                if comp == Comparison::LessThanEqual || comp == Comparison::GreaterThanEqual {
+                    mem::swap(&mut a, &mut b);
+                    comp = match comp {
+                        Comparison::LessThanEqual => Comparison::GreaterThan,
+                        Comparison::GreaterThanEqual => Comparison::LessThan,
+                        _ => unreachable!(),
+                    }
                 }
 
                 Ok((

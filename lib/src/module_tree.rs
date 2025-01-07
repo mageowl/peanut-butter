@@ -18,50 +18,7 @@ pub struct ExternalVariable {
 #[derive(Debug, Clone)]
 pub struct ExternalConstant {
     pub value_type: Type,
-    pub value: Value,
-}
-
-pub trait Item {
-    fn get_type(&self) -> &Type;
-    fn get_initialized(&self) -> bool;
-    fn get_mutable(&self) -> bool;
-    fn get(&self) -> Value;
-    fn get_ref(&self) -> Option<Rc<RefCell<Value>>>;
-}
-
-impl Item for ExternalVariable {
-    fn get_type(&self) -> &Type {
-        &self.value_type
-    }
-    fn get_mutable(&self) -> bool {
-        self.mutable
-    }
-    fn get_initialized(&self) -> bool {
-        self.initialized
-    }
-    fn get(&self) -> Value {
-        self.value.borrow().clone()
-    }
-    fn get_ref(&self) -> Option<Rc<RefCell<Value>>> {
-        Some(self.value.clone())
-    }
-}
-impl Item for ExternalConstant {
-    fn get_type(&self) -> &Type {
-        &self.value_type
-    }
-    fn get_mutable(&self) -> bool {
-        false
-    }
-    fn get_initialized(&self) -> bool {
-        true
-    }
-    fn get(&self) -> Value {
-        self.value.clone()
-    }
-    fn get_ref(&self) -> Option<Rc<RefCell<Value>>> {
-        None
-    }
+    pub value: Rc<RefCell<Value>>,
 }
 
 #[derive(Debug)]

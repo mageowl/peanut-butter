@@ -1,26 +1,19 @@
-use std::hash::Hash;
-
 use hashbrown::HashMap;
-use pbscript_lib::{
-    error::{Error, Result},
-    instruction::InstructionSet,
-    module_tree::ExternalModule,
-    types::Type,
-};
+use pbscript_lib::{error::Result, instruction::InstructionSet, types::Type};
 use statement::compile_statement;
 
-use crate::parser::program::Program;
+use crate::{parser::program::Program, prelude_map::VarMap};
 
 mod expression;
 mod statement;
 mod ty;
 
-struct Variable {
-    ty: Type,
-    mutable: bool,
-    initialized: bool,
+pub struct Variable {
+    pub ty: Type,
+    pub mutable: bool,
+    pub initialized: bool,
 
-    idx: usize,
+    pub idx: usize,
 }
 
 impl Default for Variable {
@@ -31,55 +24,6 @@ impl Default for Variable {
             initialized: true,
             idx: usize::MAX,
         }
-    }
-}
-
-pub trait VarMap {
-    #[expect(private_interfaces)]
-    fn get_var(&self, name: &str) -> Option<(&Variable, usize)>;
-}
-
-pub struct PreludeMap {
-    variables: HashMap<String, Variable>,
-}
-
-impl From<&ExternalModule> for PreludeMap {
-    fn from(module: &ExternalModule) -> Self {
-        let mut variables = HashMap::new();
-        let mut idx = 0;
-
-        for (name, var) in &module.variables {
-            variables.insert(
-                name.clone(),
-                Variable {
-                    ty: var.value_type.clone(),
-                    mutable: true,
-                    initialized: var.initialized,
-                    idx,
-                },
-            );
-            idx += 1;
-        }
-        for (name, con) in &module.constants {
-            variables.insert(
-                name.clone(),
-                Variable {
-                    ty: con.value_type.clone(),
-                    mutable: false,
-                    initialized: true,
-                    idx,
-                },
-            );
-            idx += 1;
-        }
-
-        Self { variables }
-    }
-}
-
-impl VarMap for PreludeMap {
-    fn get_var(&self, name: &str) -> Option<(&Variable, usize)> {
-        self.variables.get(name).map(|v| (v, 0))
     }
 }
 

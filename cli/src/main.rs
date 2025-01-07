@@ -1,16 +1,21 @@
 #![deny(clippy::unwrap_used)]
 
-use std::{env::args, fs, path::PathBuf};
+use std::{env::args, fs, path::PathBuf, rc::Rc};
 
-use compiler::{compile, PreludeMap};
+use compiler::compile;
+use interpreter::evaluate;
 use lexer::TokenStream;
 use parser::{program::Program, Parse};
 use pbscript_lib::{error::Result, module_tree::ModuleTree};
+use prelude_map::PreludeMap;
+use std_library::prelude;
 
 mod compiler;
+mod interpreter;
 mod lexer;
 mod parser;
-mod prelude;
+mod prelude_map;
+mod std_library;
 
 pub fn interpret(code: &str, mut _module_tree: ModuleTree) -> Result<()> {
     let mut token_stream = TokenStream::from(code);
@@ -19,8 +24,10 @@ pub fn interpret(code: &str, mut _module_tree: ModuleTree) -> Result<()> {
     let prelude = prelude::build();
     let prelude_map = PreludeMap::from(&prelude);
     let instructions = compile(program.data, Some(&prelude_map))?;
-
-    dbg!(instructions);
+    evaluate(
+        instructions,
+        Some(Rc::new(prelude_map.create_state(&prelude))),
+    )?;
     Ok(())
 }
 
@@ -30,7 +37,7 @@ fn main() {
     let file = fs::read_to_string(&path).expect("failed to open file");
 
     let module_tree = ModuleTree::new();
-    if let Err(error) = interpret(&file, module_tree) {
+    if let Err(mut error) = interpret(&file, module_tree) {
         let span = error.stack[0].span;
         let src = span.read_from(&file);
 
@@ -66,6 +73,15 @@ fn main() {
             "\x1b[2m{pad}|\x1b[22m",
             pad = " ".repeat(ln_len as usize + 1)
         );
+
+        let indicies = error
+            .message
+            .match_indices("\n")
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>();
+        for i in indicies.into_iter().rev() {
+            error.message.insert_str(i + 1, "       ");
+        }
 
         println!("\n\x1b[31;1merror\x1b[0m: {msg}", msg = error.message);
     }

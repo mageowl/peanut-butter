@@ -119,6 +119,21 @@ impl Value {
     }
 }
 
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::String(a), Self::String(b)) => a == b,
+            (Self::Number(a), Self::Number(b)) => a == b,
+            (Self::Boolean(a), Self::Boolean(b)) => a == b,
+            (Self::Table(a), Self::Table(b)) => a == b,
+            (Self::Unit, a) | (a, Self::Unit) => a.is_unit(),
+            (Self::Function(a), Self::Function(b)) => Rc::ptr_eq(a, b),
+            (Self::Reference(a), Self::Reference(b)) => Rc::ptr_eq(a, b),
+            (_, _) => false,
+        }
+    }
+}
+
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
