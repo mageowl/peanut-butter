@@ -7,20 +7,8 @@ use crate::{types::Type, value::Value};
 
 pub mod builder;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ModulePath {
-    Local(PathBuf),
-    External(Vec<String>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ItemPath {
-    pub module: ModulePath,
-    pub name: String,
-}
-
 #[derive(Debug, Clone)]
-pub struct Variable {
+pub struct ExternalVariable {
     pub value_type: Type,
     pub value: Rc<RefCell<Value>>,
     pub initialized: bool,
@@ -28,7 +16,7 @@ pub struct Variable {
 }
 
 #[derive(Debug, Clone)]
-pub struct Constant {
+pub struct ExternalConstant {
     pub value_type: Type,
     pub value: Value,
 }
@@ -41,7 +29,7 @@ pub trait Item {
     fn get_ref(&self) -> Option<Rc<RefCell<Value>>>;
 }
 
-impl Item for Variable {
+impl Item for ExternalVariable {
     fn get_type(&self) -> &Type {
         &self.value_type
     }
@@ -58,7 +46,7 @@ impl Item for Variable {
         Some(self.value.clone())
     }
 }
-impl Item for Constant {
+impl Item for ExternalConstant {
     fn get_type(&self) -> &Type {
         &self.value_type
     }
@@ -77,41 +65,24 @@ impl Item for Constant {
 }
 
 #[derive(Debug)]
-pub struct Scope {
-    pub imported_constants: HashMap<String, Constant>,
-    pub variables: HashMap<String, Variable>,
-    pub parent: Option<Rc<Scope>>,
-}
-
-impl Scope {
-    pub fn get_var(&self, name: &String) -> Option<&dyn Item> {
-        self.variables
-            .get(name)
-            .map(|x| x as &dyn Item)
-            .or_else(|| self.imported_constants.get(name).map(|x| x as &dyn Item))
-            .or_else(|| self.parent.as_ref().and_then(|p| p.get_var(name)))
-    }
-}
-
-#[derive(Debug)]
 pub struct LocalModule {
     pub public_variables: Vec<String>,
-    scope: Rc<Scope>,
+    stack: Vec<Rc<RefCell<Value>>>,
 }
 
 impl LocalModule {
-    pub fn new(scope: Rc<Scope>) -> Self {
+    pub fn new(stack: Vec<Rc<RefCell<Value>>>) -> Self {
         Self {
             public_variables: Vec::new(),
-            scope,
+            stack,
         }
     }
 }
 
 #[derive(Debug)]
 pub struct ExternalModule {
-    pub constants: HashMap<String, Constant>,
-    pub variables: HashMap<String, Variable>,
+    pub constants: HashMap<String, ExternalConstant>,
+    pub variables: HashMap<String, ExternalVariable>,
     pub submodules: HashMap<String, ExternalModule>,
 }
 

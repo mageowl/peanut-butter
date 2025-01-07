@@ -1,3 +1,4 @@
+use hashbrown::HashMap;
 use pbscript_lib::{error::Result, module_tree::ExternalModule};
 
 pub fn build() -> ExternalModule {

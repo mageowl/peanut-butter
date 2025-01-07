@@ -10,6 +10,28 @@ use crate::error::Result;
 
 pub mod function;
 
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+pub enum Comparison {
+    Equals,
+    NotEquals,
+    LessThan,
+    LessThanEqual,
+    GreaterThan,
+    GreaterThanEqual,
+}
+
+// Order for comparisons doesn't matter.
+impl PartialOrd for Comparison {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for Comparison {
+    fn cmp(&self, _other: &Self) -> std::cmp::Ordering {
+        std::cmp::Ordering::Equal
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Key {
     Named(String),

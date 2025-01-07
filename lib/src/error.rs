@@ -23,6 +23,7 @@ impl Display for ErrorSrc {
     }
 }
 
+#[derive(Debug)]
 pub struct Error {
     pub stack: Vec<ErrorSrc>,
     pub message: String,
@@ -34,18 +35,6 @@ impl Error {
             stack: vec![ErrorSrc { label: None, span }],
             message: message.to_string(),
         }
-    }
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "error: {}\n  -> {:?}", self.message, self.stack)
-    }
-}
-
-impl Debug for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self}")
     }
 }
 

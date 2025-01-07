@@ -1,17 +1,17 @@
 use crate::value::{function::FFIWrapper, Call};
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 use hashbrown::HashMap;
 
-use super::{Constant, ExternalModule, Variable};
+use super::{ExternalConstant, ExternalModule, ExternalVariable};
 use crate::{
     types::Type,
     value::{function::FFIFunction, Value},
 };
 
 pub struct ModuleBuilder {
-    pub constants: HashMap<String, Constant>,
-    pub variables: HashMap<String, Variable>,
+    pub constants: HashMap<String, ExternalConstant>,
+    pub variables: HashMap<String, ExternalVariable>,
     pub submodules: HashMap<String, ExternalModule>,
 }
 
@@ -31,7 +31,7 @@ impl ModuleBuilder {
         if !self.constants.contains_key(name) {
             self.constants.insert(
                 name.to_string(),
-                Constant {
+                ExternalConstant {
                     value_type: Type::Fn {
                         parameters: T::parameters(),
                         return_type: Box::new(T::return_ty()),

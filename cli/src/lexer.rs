@@ -250,16 +250,19 @@ impl TokenStream<'_> {
                     end: self.pos,
                 };
                 match string.as_str() {
+                    "use" => Some(Ok(span.with(Token::KeywordUse))),
+
                     "fn" => Some(Ok(span.with(Token::KeywordFunction))),
                     "mut" => Some(Ok(span.with(Token::KeywordMut))),
                     "let" => Some(Ok(span.with(Token::KeywordLet))),
                     "type" => Some(Ok(span.with(Token::KeywordType))),
+
                     "with" => Some(Ok(span.with(Token::KeywordWith))),
-                    "use" => Some(Ok(span.with(Token::KeywordUse))),
+
                     "if" => Some(Ok(span.with(Token::KeywordIf))),
                     "else" => Some(Ok(span.with(Token::KeywordElse))),
+
                     "ref" => Some(Ok(span.with(Token::KeywordRef))),
-                    "as" => Some(Ok(span.with(Token::KeywordAs))),
 
                     "true" => Some(Ok(span.with(Token::Boolean(true)))),
                     "false" => Some(Ok(span.with(Token::Boolean(false)))),
@@ -318,6 +321,7 @@ impl TokenStream<'_> {
             ',' => operator!(Comma, self.pos),
             '.' => operator!(Dot, self.pos),
             '#' => operator!(Hash, self.pos),
+            '|' => operator!(Pipe, self.pos),
             '=' => operator!(Equals, self.pos),
             '+' => operator!(Add, self.pos),
             '-' => operator!(Sub, self.pos),
