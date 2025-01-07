@@ -174,12 +174,11 @@ pub fn compile_expression(
 
             let mut arg_reps = Vec::new();
             for (param, arg) in parameters.iter().zip(args.into_iter()) {
-                dbg!(&arg);
                 let span = arg.span;
                 let (ty, rep) = compile_expression(arg, scope)?;
 
                 if !param.matches(&ty) {
-                    return Err(Error::new(span, "This argument is the wrong type."));
+                    return Err(Error::new(span, format!("This argument is the wrong type.\nExpected an argument of type: {param}\nGot an argument of type: {ty}")));
                 }
                 arg_reps.push(rep);
             }
@@ -200,10 +199,7 @@ pub fn compile_expression(
                 if !Type::Boolean.matches(&ty) {
                     return Err(Error::new(
                         cond_span,
-                        format!(
-                            "A condition must be a boolean, but this is a {}.",
-                            ty.simple_name()
-                        ),
+                        format!("A condition must be a boolean.\nThis expression is of type: {ty}"),
                     ));
                 }
 
@@ -217,8 +213,9 @@ pub fn compile_expression(
                         return Err(Error::new(
                             tail_span,
                             format!(
-                                "All previous if blocks are of type {}, but this one is different.",
-                                prev_ty.simple_name()
+                                "All previous if blocks are a different type from this one.
+Previous blocks are of type: {prev_ty}
+This block is of type: {ty}"
                             ),
                         ));
                     }

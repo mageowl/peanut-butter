@@ -89,8 +89,7 @@ pub fn compile_statement(statement: Chunk<Statement>, scope: &mut Scope) -> Resu
                     Error::new(
                         body_span,
                         format!(
-                            "This expression does not match the function signature. Expected a return type of {}.", 
-                            return_type.simple_name()
+                            "This expression does not match the function signature.\nExpected a return type of {return_type}.", 
                         )
                     )
                 );

@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter};
+
 use hashbrown::HashMap;
 
 use crate::value::{Key, Value};
@@ -80,7 +82,7 @@ impl Type {
                     parameters: p2,
                     return_type: r2,
                 },
-            ) => p1 == p2 && r1 == r2,
+            ) => p1.iter().zip(p2).all(|(a, b)| a.matches(b)) && r1.matches(r2),
             (Self::Ref(t1), Self::Ref(t2)) => t1.matches(t2),
 
             (Self::List(a), b) | (b, Self::List(a)) => b.is_list(a),
@@ -88,6 +90,36 @@ impl Type {
 
             _ => false,
         }
+    }
+
+    fn fmt_table(map: &HashMap<Key, Type>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[\n")?;
+        let mut i = 0;
+        while map.contains_key(&i) {
+            if i > 0 {
+                f.write_str(",\n")?;
+            }
+            write!(f, "{}", map[&i])?;
+
+            i += 1;
+        }
+
+        for (k, v) in map.iter() {
+            if let Some(key) = match k {
+                Key::Named(k) => Some(k.to_string()),
+                Key::Index(k) if k > &i => Some(k.to_string()),
+                _ => None,
+            } {
+                if i > 0 {
+                    f.write_str(",\n")?;
+                }
+                write!(f, "{key} = {}", v)?;
+
+                i += 1;
+            }
+        }
+        f.write_str("]")?;
+        Ok(())
     }
 }
 
@@ -111,7 +143,44 @@ impl PartialEq for Type {
             (Self::Ref(t1), Self::Ref(t2)) => t1 == t2,
             (Self::List(a), b) | (b, Self::List(a)) => b.is_list(a),
             (Self::Map(a), b) | (b, Self::Map(a)) => b.is_map(a),
-            _ => false,
+            (a, b) => a.is_unit() && b.is_unit(),
+        }
+    }
+}
+
+impl Display for Type {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            Type::Unit => f.write_str("[]"),
+            Type::String => f.write_str("str"),
+            Type::Number => f.write_str("num"),
+            Type::Boolean => f.write_str("bool"),
+            Type::Table(map) => Self::fmt_table(map, f),
+            Type::Fn {
+                parameters,
+                return_type,
+            } => {
+                f.write_str("fn(")?;
+                for param in parameters {
+                    write!(f, "{param}")?
+                }
+                f.write_str(")")?;
+                if **return_type != Type::Unit {
+                    write!(f, " -> {return_type}")?;
+                }
+                Ok(())
+            }
+            Type::Ref(ty) => write!(f, "ref {ty}"),
+            Type::Union(vec) => {
+                let mut iter = vec.iter();
+                write!(f, "{}", iter.next().unwrap_or(&Type::Unit))?;
+                for ty in iter {
+                    write!(f, "| {}", ty)?;
+                }
+                Ok(())
+            }
+            Type::List(ty) => write!(f, "list<{ty}>"),
+            Type::Map(ty) => write!(f, "map<{ty}>"),
         }
     }
 }
