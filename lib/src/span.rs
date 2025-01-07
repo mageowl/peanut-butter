@@ -105,7 +105,7 @@ impl Span {
         let mut lines = 1;
 
         let mut start = 0;
-        if self.start.ln > 0 {
+        if self.start.ln > 1 {
             for c in chars.by_ref() {
                 start += 1;
                 if c == '\n' {

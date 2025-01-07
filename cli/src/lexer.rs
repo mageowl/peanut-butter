@@ -96,11 +96,14 @@ impl TokenStream<'_> {
             return None;
         }
 
-        let start = self.pos;
+        let mut start = self.pos;
         let Some(char) = self.next_char() else {
             self.done = true;
             return None;
         };
+        if self.pos.ln != start.ln {
+            start = self.pos - Pos::new(0, 1);
+        }
 
         match char {
             // Line comment

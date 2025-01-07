@@ -147,6 +147,7 @@ impl PartialEq for Type {
         }
     }
 }
+impl Eq for Type {}
 
 impl Display for Type {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
