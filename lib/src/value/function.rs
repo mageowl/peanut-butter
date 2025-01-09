@@ -25,7 +25,7 @@ macro_rules! impl_fn {
             fn call(&self, args: Vec<Value>) -> Result<Value> {
                 #[allow(unused)]
                 let mut iter = args.into_iter();
-                (self.function)($($generic::from(iter.next().unwrap())),*).map(Into::into)
+                (self.function)($($generic::from(iter.next().unwrap().deref_implicit())),*).map(Into::into)
             }
         }
         impl<T: Fn($($generic),*) -> Result<R>, R: IntoType, $($generic: IntoType),*> FFIFunction<(R, $($generic),*)> for T {

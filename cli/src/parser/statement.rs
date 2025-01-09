@@ -8,7 +8,7 @@ use pbscript_lib::{
     token::Token,
 };
 
-use super::{expression::Expression, type_name::TypeName, Parameter, Parse};
+use super::{block::Block, expression::Expression, type_name::TypeName, Parameter, Parse};
 
 #[derive(Debug)]
 pub enum Statement {
@@ -37,6 +37,10 @@ pub enum Statement {
         op: AssignmentOperator,
     },
     Expression(Expression),
+    /*WhileLoop {
+        condition: Chunk<Expression>,
+        block: Chunk<Block>,
+    },*/
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

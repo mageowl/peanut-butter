@@ -36,6 +36,48 @@ impl Error {
             message: message.to_string(),
         }
     }
+    pub fn print(mut self, file: &str) {
+        let span = self.stack[0].span;
+        let src = span.read_from(file);
+
+        let ln_len = span.end.ln.ilog10() + 1;
+        let offset = span.start.ln.max(2) - 1;
+
+        for (i, line) in src.lines().enumerate() {
+            let ln = offset + i;
+            let ln_pad = (ln_len - ln.ilog10() - 1) as usize;
+
+            const HIGHLIGHT: &str = "\x1b[31;1m";
+            let mut line = line.to_owned();
+
+            if ln == span.end.ln {
+                line.insert_str(span.end.col - 1, "\x1b[0m")
+            }
+            if ln == span.start.ln {
+                line.insert_str(span.start.col - 1, HIGHLIGHT)
+            } else if ln >= span.start.ln && ln <= span.end.ln {
+                line.insert_str(0, HIGHLIGHT);
+            }
+
+            line = line.replace("\t", "    ");
+
+            println!(
+                "\x1b[2m{pad}{ln} |\x1b[22m  {line}\x1b[0m",
+                pad = " ".repeat(ln_pad)
+            );
+        }
+
+        let indicies = self
+            .message
+            .match_indices("\n")
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>();
+        for i in indicies.into_iter().rev() {
+            self.message.insert_str(i + 1, "       ");
+        }
+
+        println!("\n\x1b[31;1merror\x1b[0m: {msg}", msg = self.message);
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

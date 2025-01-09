@@ -6,7 +6,6 @@ use pbscript_lib::{module_tree::ExternalModule, value::Value};
 use crate::{compiler::Variable, interpreter::State};
 
 pub trait VarMap {
-    #[expect(private_interfaces)]
     fn get_var(&self, name: &str) -> Option<(&Variable, usize)>;
 }
 

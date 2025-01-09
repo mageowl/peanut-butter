@@ -1,12 +1,19 @@
 #![deny(clippy::unwrap_used)]
 
-use std::{env::args, fs, path::PathBuf, rc::Rc};
+use std::{fs, path::PathBuf, process::ExitCode, rc::Rc};
 
+use clap::{
+    builder::{
+        styling::{AnsiColor, Effects},
+        Styles,
+    },
+    Parser, Subcommand,
+};
 use compiler::compile;
 use interpreter::evaluate;
 use lexer::TokenStream;
 use parser::{program::Program, Parse};
-use pbscript_lib::{error::Result, module_tree::ModuleTree};
+use pbscript_lib::{error::Error, module_tree::ModuleTree};
 use prelude_map::PreludeMap;
 use std_library::prelude;
 
@@ -17,13 +24,14 @@ mod parser;
 mod prelude_map;
 mod std_library;
 
-pub fn interpret(code: &str, mut _module_tree: ModuleTree) -> Result<()> {
+pub fn interpret(code: &str, mut _module_tree: ModuleTree) -> Result<(), Error> {
     let mut token_stream = TokenStream::from(code);
     let program = Program::parse(&mut token_stream)?;
 
     let prelude = prelude::build();
     let prelude_map = PreludeMap::from(&prelude);
     let instructions = compile(program.data, Some(&prelude_map))?;
+
     evaluate(
         instructions,
         Some(Rc::new(prelude_map.create_state(&prelude))),
@@ -31,52 +39,83 @@ pub fn interpret(code: &str, mut _module_tree: ModuleTree) -> Result<()> {
     Ok(())
 }
 
-fn main() {
-    let path = PathBuf::from(args().nth(1).expect("expected a file path to run."));
+const STYLE: Styles = Styles::styled()
+    .header(AnsiColor::Green.on_default().effects(Effects::BOLD))
+    .usage(AnsiColor::Green.on_default().effects(Effects::BOLD))
+    .literal(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
+    .placeholder(AnsiColor::Cyan.on_default())
+    .error(AnsiColor::Red.on_default().effects(Effects::BOLD))
+    .valid(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
+    .invalid(AnsiColor::Yellow.on_default().effects(Effects::BOLD));
 
-    let file = fs::read_to_string(&path).expect("failed to open file");
+#[derive(Parser)]
+#[command(name = "pbscript")]
+#[command(about = "A statically typed interpreted language.", long_about = None, styles(STYLE))]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
 
-    let module_tree = ModuleTree::new();
-    if let Err(mut error) = interpret(&file, module_tree) {
-        let span = error.stack[0].span;
-        let src = span.read_from(&file);
+#[derive(Subcommand)]
+enum Command {
+    #[command(arg_required_else_help = true)]
+    /// Run code from a .pb file.
+    Run {
+        /// Path to a file to run.
+        file: PathBuf,
+        /// Additional arguments that are passed to the program.
+        args: Vec<String>,
+    },
+    /// Open an interactive command line
+    Repl,
+    #[command(arg_required_else_help = true)]
+    Check { file: PathBuf },
+    #[command(hide = true)]
+    CompileDebug { file: PathBuf },
+}
 
-        let ln_len = span.end.ln.ilog10() + 1;
-        let offset = span.start.ln.max(1) - 1;
-
-        for (i, line) in src.lines().enumerate() {
-            let ln = offset + i;
-            let ln_pad = (ln_len - ln.ilog10() - 1) as usize;
-
-            const HIGHLIGHT: &str = "\x1b[31;1m";
-            let mut line = line.to_owned();
-
-            if ln == span.end.ln {
-                line.insert_str(span.end.col - 1, "\x1b[0m")
+fn main() -> ExitCode {
+    let Cli { command } = Cli::parse();
+    match command {
+        Command::Run { file, args: _ } => {
+            let file = match read_file(file) {
+                Ok(file) => file,
+                Err(code) => return code,
+            };
+            let module_tree = ModuleTree::new();
+            if let Err(error) = interpret(&file, module_tree) {
+                error.print(&file);
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
             }
-            if ln == span.start.ln {
-                line.insert_str(span.start.col - 1, HIGHLIGHT)
-            } else if ln >= span.start.ln && ln <= span.end.ln {
-                line.insert_str(0, HIGHLIGHT);
-            }
+        }
+        Command::CompileDebug { file } => {
+            let file = match read_file(file) {
+                Ok(file) => file,
+                Err(code) => return code,
+            };
+            let mut token_stream = TokenStream::from(file.as_str());
+            let program = Program::parse(&mut token_stream).expect("error failed");
+            let prelude = prelude::build();
+            let prelude_map = PreludeMap::from(&prelude);
+            let instructions = compile(program.data, Some(&prelude_map)).expect("error failed");
+            dbg!(instructions);
+            ExitCode::SUCCESS
+        }
+        _ => todo!(),
+    }
+}
 
-            line = line.replace("\t", "    ");
-
+fn read_file(file: PathBuf) -> Result<String, ExitCode> {
+    match fs::read_to_string(&file) {
+        Ok(file) => Ok(file),
+        Err(err) => {
             println!(
-                "\x1b[2m{pad}{ln} |\x1b[22m  {line}\x1b[0m",
-                pad = " ".repeat(ln_pad)
+                "\n\x1b[31;1merror\x1b[0m: Failed to open `{}`. {err}",
+                file.to_string_lossy()
             );
+            Err(ExitCode::FAILURE)
         }
-
-        let indicies = error
-            .message
-            .match_indices("\n")
-            .map(|(i, _)| i)
-            .collect::<Vec<_>>();
-        for i in indicies.into_iter().rev() {
-            error.message.insert_str(i + 1, "       ");
-        }
-
-        println!("\n\x1b[31;1merror\x1b[0m: {msg}", msg = error.message);
     }
 }

@@ -464,7 +464,7 @@ pub fn get_key<'a>(ty: &'a Type, key: &Chunk<Key>) -> Result<&'a Type> {
             Some(ty) => Ok(ty),
             None => Err(Error::new(
                 key.span,
-                format!("Property {key} doesn't exist on this table."),
+                format!("Property `{}` doesn't exist on this table.", key.data),
             )),
         },
         _ => Err(Error::new(

@@ -2,7 +2,7 @@ use core::panic;
 use hashbrown::{Equivalent, HashMap};
 use std::{
     cell::RefCell,
-    fmt::{Debug, Display, Formatter},
+    fmt::{write, Debug, Display, Formatter},
     rc::Rc,
 };
 
@@ -65,7 +65,6 @@ impl Equivalent<Key> for usize {
     }
 }
 
-#[derive(Clone)]
 pub enum Value {
     String(String),
     Number(f64),
@@ -73,6 +72,7 @@ pub enum Value {
     Table(HashMap<Key, Rc<RefCell<Value>>>),
     Function(Rc<dyn Call>),
     Reference(Rc<RefCell<Value>>),
+    ImplicitRef(Rc<RefCell<Value>>),
     Unit,
 }
 
@@ -82,6 +82,13 @@ impl Value {
             Self::Table(map) => map.is_empty(),
             Self::Unit => true,
             _ => false,
+        }
+    }
+
+    pub fn deref_implicit(self) -> Self {
+        match self {
+            Self::ImplicitRef(rc) => rc.borrow().clone().deref_implicit(),
+            _ => self,
         }
     }
 
@@ -109,12 +116,12 @@ impl Value {
                 if i > 0 {
                     f.write_str(",\n")?;
                 }
-                write!(f, "{key} = {}", v.borrow())?;
+                write!(f, "\t{key} = {}", v.borrow())?;
 
                 i += 1;
             }
         }
-        f.write_str("]")?;
+        f.write_str("\n]")?;
         Ok(())
     }
 }
@@ -129,6 +136,8 @@ impl PartialEq for Value {
             (Self::Unit, a) | (a, Self::Unit) => a.is_unit(),
             (Self::Function(a), Self::Function(b)) => Rc::ptr_eq(a, b),
             (Self::Reference(a), Self::Reference(b)) => Rc::ptr_eq(a, b),
+
+            (Self::ImplicitRef(rc), b) | (b, Self::ImplicitRef(rc)) => &*rc.borrow() == b,
             (_, _) => false,
         }
     }
@@ -143,6 +152,7 @@ impl Display for Value {
             Self::Table(map) => Self::fmt_table(map, f),
             Self::Function(c) => f.write_str(c.to_str()),
             Self::Reference(v) => write!(f, "ref {}", v.borrow()),
+            Self::ImplicitRef(v) => write!(f, "&{}", v.borrow()),
             Self::Unit => write!(f, "[]"),
         }
     }
@@ -151,6 +161,25 @@ impl Display for Value {
 impl Debug for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self}")
+    }
+}
+
+impl Clone for Value {
+    fn clone(&self) -> Self {
+        match self {
+            Self::String(s) => Self::String(s.clone()),
+            Self::Number(n) => Self::Number(*n),
+            Self::Boolean(b) => Self::Boolean(*b),
+            Self::Table(map) => Self::Table(
+                map.iter()
+                    .map(|(k, v)| (k.clone(), Rc::new(RefCell::new(v.borrow().clone()))))
+                    .collect(),
+            ),
+            Self::Function(rc) => Self::Function(rc.clone()),
+            Self::Reference(rc) => Self::Reference(rc.clone()),
+            Self::ImplicitRef(rc) => Self::ImplicitRef(rc.clone()),
+            Self::Unit => Self::Unit,
+        }
     }
 }
 

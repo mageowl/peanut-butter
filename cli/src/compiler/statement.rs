@@ -23,7 +23,7 @@ pub fn compile_statement(statement: Chunk<Statement>, scope: &mut Scope) -> Resu
             type_hint,
             value,
         } => {
-            let idx = scope.variables.len();
+            let idx = scope.instructions.allocation;
             let (ty, rep, value_span) = match value {
                 Some(v) => {
                     let span = v.span;

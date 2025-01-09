@@ -264,6 +264,7 @@ impl TokenStream<'_> {
 
                     "if" => Some(Ok(span.with(Token::KeywordIf))),
                     "else" => Some(Ok(span.with(Token::KeywordElse))),
+                    "while" => Some(Ok(span.with(Token::KeywordWhile))),
 
                     "ref" => Some(Ok(span.with(Token::KeywordRef))),
 
