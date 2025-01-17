@@ -163,6 +163,7 @@ impl TokenStream<'_> {
                             Some('n') => string.push('\n'),
                             Some('t') => string.push('\t'),
                             Some('r') => string.push('\r'),
+                            Some('\\') => string.push('\\'),
 
                             Some(c) => {
                                 return Some(Err(Error::new(
@@ -261,12 +262,14 @@ impl TokenStream<'_> {
                     "type" => Some(Ok(span.with(Token::KeywordType))),
 
                     "with" => Some(Ok(span.with(Token::KeywordWith))),
+                    "ref" => Some(Ok(span.with(Token::KeywordRef))),
 
                     "if" => Some(Ok(span.with(Token::KeywordIf))),
                     "else" => Some(Ok(span.with(Token::KeywordElse))),
                     "while" => Some(Ok(span.with(Token::KeywordWhile))),
-
-                    "ref" => Some(Ok(span.with(Token::KeywordRef))),
+                    "for" => Some(Ok(span.with(Token::KeywordFor))),
+                    "in" => Some(Ok(span.with(Token::KeywordIn))),
+                    "match" => Some(Ok(span.with(Token::KeywordMatch))),
 
                     "true" => Some(Ok(span.with(Token::Boolean(true)))),
                     "false" => Some(Ok(span.with(Token::Boolean(false)))),

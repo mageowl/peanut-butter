@@ -1,5 +1,9 @@
 use hashbrown::HashMap;
-use pbscript_lib::{error::Result, instruction::InstructionSet, types::Type};
+use pbscript_lib::{
+    error::Result,
+    instruction::InstructionSet,
+    types::{partial::PartialType, Type},
+};
 use statement::compile_statement;
 
 use crate::{parser::program::Program, prelude_map::VarMap};
@@ -8,6 +12,7 @@ mod expression;
 mod statement;
 mod ty;
 
+#[derive(Debug)]
 pub struct Variable {
     pub ty: Type,
     pub mutable: bool,
@@ -16,21 +21,22 @@ pub struct Variable {
     pub idx: usize,
 }
 
-impl Default for Variable {
-    fn default() -> Self {
-        Self {
-            ty: Type::Unit,
-            mutable: false,
-            initialized: true,
-            idx: usize::MAX,
-        }
+pub struct TypeDef {
+    pub partial: PartialType,
+    pub generics: usize,
+}
+impl TypeDef {
+    pub fn build(&self, generics: Vec<Type>) -> Type {
+        self.partial.clone().complete(&generics)
     }
 }
 
 struct Scope<'a> {
     variables: HashMap<String, Variable>,
-    instructions: InstructionSet,
+    aliases: Option<HashMap<String, (usize, usize)>>,
+    types: HashMap<String, TypeDef>,
 
+    instructions: InstructionSet,
     parent: Option<&'a dyn VarMap>,
 }
 impl VarMap for Scope<'_> {
@@ -43,11 +49,20 @@ impl VarMap for Scope<'_> {
             None
         }
     }
+    fn get_type(&self, name: &str) -> Option<&TypeDef> {
+        if let Some(type_def) = self.types.get(name) {
+            Some(type_def)
+        } else {
+            self.parent.and_then(|p| p.get_type(name))
+        }
+    }
 }
 
 pub fn compile(tree: Program, parent: Option<&dyn VarMap>) -> Result<InstructionSet> {
     let mut scope = Scope {
         variables: HashMap::new(),
+        aliases: None,
+        types: HashMap::new(),
         instructions: InstructionSet::default(),
         parent,
     };

@@ -1,6 +1,6 @@
 use hashbrown::HashMap;
 
-use super::{parse_ident, parse_token};
+use super::{block::IntoBlock, parse_ident, parse_token, pattern::Pattern};
 use crate::lexer::TokenStream;
 use pbscript_lib::{
     error::{Error, Result},
@@ -20,7 +20,7 @@ pub enum Expression {
     Lambda {
         parameters: Vec<Chunk<Parameter>>,
         return_type: Option<Chunk<TypeName>>,
-        body: Chunk<Box<Expression>>,
+        body: Chunk<Block>,
     },
 
     Variable(String),
@@ -37,6 +37,10 @@ pub enum Expression {
     If {
         blocks: Vec<(Chunk<Expression>, Chunk<Block>)>,
         else_block: Option<Chunk<Block>>,
+    },
+    Match {
+        value: Chunk<Box<Expression>>,
+        cases: Vec<(Chunk<Pattern>, Chunk<Block>)>,
     },
 
     BinaryOp {
@@ -68,6 +72,18 @@ pub enum Operation {
 pub enum UnaryOperation {
     BooleanNot,
     Negation,
+}
+
+impl IntoBlock for Chunk<Expression> {
+    fn into_block(self) -> Chunk<Block> {
+        match self.data {
+            Expression::Block(block) => self.span.with(block),
+            _ => self.span.with(Block {
+                body: Vec::new(),
+                tail: Some(self.span.with(Box::new(self.data))),
+            }),
+        }
+    }
 }
 
 impl Expression {
@@ -237,7 +253,7 @@ impl Expression {
             "Expected an equals sign to seperate function signature and body.",
         )?;
 
-        let body = Expression::parse(source)?.as_box();
+        let body = Expression::parse(source)?.into_block();
 
         Ok(Span {
             start: span.start,
@@ -311,6 +327,56 @@ impl Expression {
         .with(Self::If { blocks, else_block }))
     }
 
+    fn parse_match(source: &mut TokenStream) -> Result<Chunk<Self>> {
+        // skip match keyword
+        let span = parse_token(source, Token::KeywordMatch, "Expected a match statement.")?;
+        let value = Self::parse(source)?;
+        parse_token(
+            source,
+            Token::BraceOpen,
+            "Expected an opening curly brace ('{') to denote match cases.",
+        )?;
+
+        let mut cases = Vec::new();
+        let mut trailing_delimiter = true;
+
+        loop {
+            if let Some(Token::BraceClose) = source.peek_token() {
+                source.next();
+                break;
+            } else if trailing_delimiter {
+                trailing_delimiter = false;
+                let pattern = Pattern::parse(source)?;
+                parse_token(
+                    source,
+                    Token::Equals,
+                    "Expected an equal sign to separate the pattern from the expression.",
+                )?;
+                cases.push((pattern, Expression::parse(source)?.into_block()));
+            } else {
+                return Err(match source.next() {
+                    Some(Ok(token)) => Error::new(token.span, "Expected a semicolon."),
+                    Some(Err(err)) => err,
+                    None => Error::new(Span::char(source.pos()), "Expected a semicolon."),
+                });
+            }
+
+            if let Some(Token::Semicolon) = source.peek_token() {
+                trailing_delimiter = true;
+                source.next();
+            }
+        }
+
+        Ok(Span {
+            start: span.start,
+            end: source.pos(),
+        }
+        .with(Self::Match {
+            value: value.as_box(),
+            cases,
+        }))
+    }
+
     fn parse_single(source: &mut TokenStream) -> Result<Chunk<Self>> {
         let mut expr = match source.peek_token() {
             Some(Token::String(_)) => {
@@ -346,6 +412,7 @@ impl Expression {
             Some(Token::BracketOpen) => Self::parse_table(source)?,
             Some(Token::KeywordFunction) => Self::parse_lambda(source)?,
             Some(Token::KeywordIf) => Self::parse_if(source)?,
+            Some(Token::KeywordMatch) => Self::parse_match(source)?,
 
             Some(Token::Ident(_)) => {
                 let Some(Ok(Chunk {
@@ -424,10 +491,12 @@ impl Expression {
                 ));
             }
             None => {
+                // Make sure that there wasn't a lexing error.
+                let _ = source.next().transpose()?;
                 return Err(Error::new(
                     Span::char(source.pos()),
                     "Expected an expression, like a number or function call.",
-                ))
+                ));
             }
         };
 

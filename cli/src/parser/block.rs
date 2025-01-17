@@ -65,3 +65,7 @@ impl Parse for Block {
         .with(Self { body, tail }))
     }
 }
+
+pub trait IntoBlock {
+    fn into_block(self) -> Chunk<Block>;
+}

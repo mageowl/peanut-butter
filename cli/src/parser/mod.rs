@@ -10,6 +10,7 @@ use type_name::TypeName;
 
 pub mod block;
 pub mod expression;
+pub mod pattern;
 pub mod program;
 pub mod statement;
 pub mod type_name;

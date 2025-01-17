@@ -1,1 +1,13 @@
-pub mod prelude;
+use pbscript_lib::module_tree::ExternalModule;
+
+pub mod convert;
+pub mod io;
+pub mod iter;
+
+pub fn prelude() -> ExternalModule {
+    let mut builder = ExternalModule::builder();
+    builder = convert::add_to_prelude(builder);
+    builder = io::add_to_prelude(builder);
+    builder = iter::add_to_prelude(builder);
+    builder.build()
+}

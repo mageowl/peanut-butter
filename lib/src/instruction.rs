@@ -1,6 +1,9 @@
 use hashbrown::HashMap;
 
-use crate::value::{Comparison, Key, Value};
+use crate::{
+    types::Type,
+    value::{Comparison, Key, Value},
+};
 
 #[derive(Clone, Debug)]
 pub enum Instruction {
@@ -18,6 +21,11 @@ pub enum Instruction {
         reference: Reporter,
         value: Reporter,
     },
+
+    While {
+        condition: Reporter,
+        body: InstructionSet,
+    },
     Void(Reporter),
 
     Import {
@@ -31,7 +39,12 @@ pub enum Instruction {
 pub enum Reporter {
     Const(Value),
     Table(HashMap<Key, Reporter>),
-    Lambda(Box<Reporter>),
+    Lambda {
+        body: InstructionSet,
+        tail: Option<Box<Reporter>>,
+        parameters: Vec<Type>,
+        return_ty: Type,
+    },
 
     /// Goes up the tree `up` times, then gets item `idx`.
     Get {
@@ -60,7 +73,15 @@ pub enum Reporter {
         blocks: Vec<(Reporter, InstructionSet, Option<Reporter>)>,
         else_block: Option<(InstructionSet, Option<Box<Reporter>>)>,
     },
+    Match {
+        target: usize,
+        cases: Vec<(Type, InstructionSet, Option<Box<Reporter>>)>,
+    },
 
+    Matches {
+        target: Box<Reporter>,
+        pattern: Type,
+    },
     Arithmetic {
         a: Box<Reporter>,
         b: Box<Reporter>,

@@ -53,7 +53,6 @@ fn evaluate_state(instruction_set: InstructionSet, state: Rc<State>) -> Result<(
                     }
                     Value::ImplicitRef(rc) => {
                         let Value::Table(tbl) = &*rc.borrow() else {
-                            dbg!(rc);
                             panic!("type checker failed to find mismatched table type");
                         };
                         tbl[&key]
@@ -69,6 +68,21 @@ fn evaluate_state(instruction_set: InstructionSet, state: Rc<State>) -> Result<(
                     panic!("type checker failed to find mismatched reference type");
                 };
                 reference.replace(evaluate_reporter(value, state.clone())?.deref_implicit());
+            }
+            Instruction::While { condition, body } => {
+                let body_state = Rc::new(State::new(body.allocation, Some(state.clone())));
+                loop {
+                    let Value::Boolean(condition) =
+                        evaluate_reporter(condition.clone(), state.clone())?.deref_implicit()
+                    else {
+                        panic!("type checker failed to find mismatched boolean type")
+                    };
+                    if !condition {
+                        break;
+                    }
+
+                    evaluate_state(body.clone(), body_state.clone())?;
+                }
             }
             Instruction::Void(reporter) => {
                 evaluate_reporter(reporter, state.clone())?;
@@ -94,9 +108,16 @@ fn evaluate_reporter(reporter: Reporter, state: Rc<State>) -> Result<Value> {
                 })
                 .collect::<Result<_>>()?,
         )),
-        Reporter::Lambda(reporter) => Ok(Value::Function(Rc::new(PbFunction {
-            reporter: *reporter,
-            signature: String::new(),
+        Reporter::Lambda {
+            body,
+            tail,
+            return_ty,
+            parameters,
+        } => Ok(Value::Function(Rc::new(PbFunction {
+            body,
+            tail: tail.map(|t| *t),
+            return_ty,
+            parameters,
             parent: state.clone(),
         }))),
         Reporter::Get { up, idx } => Ok(Value::ImplicitRef(
@@ -148,7 +169,6 @@ fn evaluate_reporter(reporter: Reporter, state: Rc<State>) -> Result<Value> {
                 Value::Function(callable) => callable.call(args),
                 Value::ImplicitRef(rc) => {
                     let Value::Function(callable) = &*rc.borrow() else {
-                        dbg!(rc);
                         panic!("type checker failed to find mismatched fn type")
                     };
                     callable.call(args)
@@ -195,6 +215,27 @@ fn evaluate_reporter(reporter: Reporter, state: Rc<State>) -> Result<Value> {
                 Ok(Value::Unit)
             }
         }
+        Reporter::Match { target, cases } => {
+            let Some(target) = state.get(0, target) else {
+                panic!("expected a variable in match expression")
+            };
+            for (pat, instruction_set, tail) in cases {
+                if pat.matches_val(&target.borrow()) {
+                    let state = Rc::new(State::new(instruction_set.allocation, Some(state)));
+                    evaluate_state(instruction_set, state.clone())?;
+                    return if let Some(rep) = tail {
+                        evaluate_reporter(*rep, state)
+                    } else {
+                        Ok(Value::Unit)
+                    };
+                }
+            }
+            Ok(Value::Unit)
+        }
+        Reporter::Matches { target, pattern } => {
+            let target = evaluate_reporter(*target, state)?;
+            Ok(Value::Boolean(pattern.matches_val(&target)))
+        }
         Reporter::Arithmetic { a, b, op } => {
             let Value::Number(a) = evaluate_reporter(*a, state.clone())?.deref_implicit() else {
                 panic!("type check failed to find mismatched number type.");
@@ -231,11 +272,16 @@ fn evaluate_reporter(reporter: Reporter, state: Rc<State>) -> Result<Value> {
             let Value::String(a) = evaluate_reporter(*a, state.clone())?.deref_implicit() else {
                 panic!("type check failed to find mismatched string type.");
             };
-            let Value::String(b) = evaluate_reporter(*b, state)?.deref_implicit() else {
-                panic!("type check failed to find mismatched string type.");
-            };
-
-            Ok(Value::String(a + &b))
+            match evaluate_reporter(*b, state)? {
+                Value::String(b) => Ok(Value::String(a + &b)),
+                Value::ImplicitRef(rc) => {
+                    let Value::String(b) = &*rc.borrow() else {
+                        panic!("type check failed to find mismatched string type.")
+                    };
+                    Ok(Value::String(a + b))
+                }
+                _ => panic!("type check failed to find mismatched string type."),
+            }
         }
         Reporter::Equality { a, b } => {
             let a = evaluate_reporter(*a, state.clone())?;

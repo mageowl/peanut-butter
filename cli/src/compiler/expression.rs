@@ -3,7 +3,7 @@ use std::mem;
 use hashbrown::HashMap;
 use pbscript_lib::{
     error::{Error, Result},
-    instruction::{ArithmaticOperation, InstructionSet, Reporter},
+    instruction::{ArithmaticOperation, Instruction, InstructionSet, Reporter},
     span::{Chunk, Span},
     types::Type,
     value::{Comparison, Key, Value},
@@ -12,10 +12,11 @@ use pbscript_lib::{
 use crate::parser::{
     block::Block,
     expression::{Expression, Operation},
+    pattern::Pattern,
 };
 
 use super::{
-    statement::{compile_fn, compile_statement},
+    statement::{compile_fn, compile_pattern, compile_statement},
     ty::compile_ty,
     Scope, VarMap,
 };
@@ -29,6 +30,9 @@ pub fn compile_expression(
         Expression::Number(n) => Ok((Type::Number, Reporter::Const(Value::Number(n)))),
         Expression::Boolean(b) => Ok((Type::Boolean, Reporter::Const(Value::Boolean(b)))),
         Expression::Table(hash_map) => {
+            if hash_map.is_empty() {
+                return Ok((Type::Unit, Reporter::Const(Value::Unit)));
+            }
             let (ty, val) = hash_map
                 .into_iter()
                 .map(|(k, v)| {
@@ -45,42 +49,56 @@ pub fn compile_expression(
             return_type,
             body,
         } => {
-            let return_type =
-                Box::new(return_type.map_or(Ok(Type::Unit), |rt| compile_ty(rt, scope))?);
+            let return_ty = return_type.map_or(Ok(Type::Unit), |rt| compile_ty(rt, scope))?;
             let body_span = body.span;
-            let (expr_ty, rep) = compile_fn(body.span.with(*body.data), &parameters, scope)?;
+            let (expr_ty, body, tail) = compile_fn(body, &parameters, scope)?;
 
-            if !return_type.matches(&expr_ty) {
+            if !return_ty.matches(&expr_ty) {
                 return Err(
                     Error::new(
                         body_span,
                         format!(
                             "This expression does not match the function signature. Expected a return type of {}.", 
-                            return_type.simple_name()
+                            return_ty.simple_name()
                         )
                     )
                 );
             }
 
+            let parameters = parameters
+                .into_iter()
+                .map(|p| compile_ty(p.data.type_hint, scope))
+                .collect::<Result<Vec<_>>>()?;
             let ty = Type::Fn {
-                return_type,
-                parameters: parameters
-                    .into_iter()
-                    .map(|p| compile_ty(p.data.type_hint, scope))
-                    .collect::<Result<_>>()?,
+                return_type: Box::new(return_ty.clone()),
+                parameters: parameters.clone(),
             };
 
-            Ok((ty, Reporter::Lambda(Box::new(rep))))
+            Ok((
+                ty,
+                Reporter::Lambda {
+                    body,
+                    tail: tail.map(Box::new),
+                    parameters,
+                    return_ty,
+                },
+            ))
         }
         Expression::Variable(name) => {
-            let Some((var, up)) = scope.get_var(&name) else {
+            let Some((var, mut up)) = scope.get_var(&name) else {
                 return Err(Error::new(
                     expression.span,
                     format!("Variable {name} does not exist."),
                 ));
             };
+            let mut idx = var.idx;
+            let ty = var.ty.clone();
+            if let Some((a_idx, a_up)) = scope.aliases.as_ref().and_then(|m| m.get(&name)) {
+                up = *a_up;
+                idx = *a_idx;
+            };
 
-            Ok((var.ty.clone(), Reporter::Get { up, idx: var.idx }))
+            Ok((ty, Reporter::Get { up, idx }))
         }
         Expression::Reference(target) => {
             if !is_mut(target.span.with(&target.data), scope) {
@@ -192,8 +210,9 @@ pub fn compile_expression(
             Ok((ty, Reporter::Block(instructions, tail.map(Box::new))))
         }
         Expression::If { blocks, else_block } => {
-            let mut prev_ty: Option<Type> = None;
+            let mut types: Vec<Type> = Vec::new();
             let mut compiled_blocks = Vec::new();
+
             for (cond, block) in blocks {
                 let cond_span = cond.span;
 
@@ -210,39 +229,17 @@ pub fn compile_expression(
                     .as_ref()
                     .map_or_else(|| Span::char(block.span.end), |t| t.span);
                 let (ty, instructions, tail) = compile_block(block.data, scope)?;
-                if let Some(prev_ty) = &prev_ty {
-                    if !prev_ty.matches(&ty) {
-                        return Err(Error::new(
-                            tail_span,
-                            format!(
-                                "All previous if blocks are a different type from this one.
-Previous blocks are of type: {prev_ty}
-This block is of type: {ty}"
-                            ),
-                        ));
-                    }
-                } else {
-                    let _ = prev_ty.insert(ty);
+                if !types.contains(&ty) {
+                    types.push(ty);
                 }
 
                 compiled_blocks.push((cond, instructions, tail));
             }
-            let prev_ty = prev_ty.unwrap_or(Type::Unit);
 
-            let else_block = if let Some(Chunk { span, data: block }) = else_block {
-                let tail_span = block
-                    .tail
-                    .as_ref()
-                    .map_or_else(|| Span::char(span.end), |t| t.span);
+            let else_block = if let Some(Chunk { data: block, .. }) = else_block {
                 let (ty, instructions, tail) = compile_block(block, scope)?;
-                if !prev_ty.matches(&ty) {
-                    return Err(Error::new(
-                        tail_span,
-                        format!(
-                            "All previous if blocks are of type {}, but the else block is different.",
-                            prev_ty.simple_name()
-                        )
-                    ));
+                if !types.contains(&ty) {
+                    types.push(ty);
                 }
 
                 Some((instructions, tail.map(Box::new)))
@@ -251,10 +248,100 @@ This block is of type: {ty}"
             };
 
             Ok((
-                prev_ty,
+                if types.len() > 1 {
+                    Type::Union(types)
+                } else {
+                    types.remove(0)
+                },
                 Reporter::If {
                     blocks: compiled_blocks,
                     else_block,
+                },
+            ))
+        }
+        Expression::Match { value, cases } => {
+            let (value_ty, value) = compile_expression(value.span.with(*value.data), scope)?;
+            let mut return_ty: Option<Type> = None;
+            let mut compiled_cases = Vec::new();
+
+            let idx = scope.instructions.allocation;
+            scope
+                .instructions
+                .push(Instruction::Set { up: 0, idx, value });
+            scope.instructions.allocation += 1;
+
+            for (mut pat, arm) in cases {
+                let pat_ty = pat.type_hint();
+                let pat_ty = if matches!(&pat.data, Pattern::Ignore { .. }) && pat_ty.is_none() {
+                    value_ty.clone()
+                } else {
+                    compile_ty(
+                        pat_ty.ok_or_else(|| {
+                            Error::new(pat.span, "This pattern does not have a fully defined type.")
+                        })?,
+                        scope,
+                    )?
+                };
+                if !value_ty.matches(&pat_ty) {
+                    return Err(Error::new(pat.span, format!("This pattern will never match the expression type.\nExpression type: {}\nPattern type: {}", value_ty, pat_ty)));
+                }
+                // TODO: look for redundant patterns
+                // ```peanut_butter
+                // match /* var with ty Option<num> */ {
+                //     _ = [],
+                //     n: num = /* redundant */
+                // }
+                // ```
+
+                let mut scope = Scope {
+                    variables: HashMap::new(),
+                    aliases: None,
+                    types: HashMap::new(),
+                    instructions: InstructionSet::default(),
+                    parent: Some(scope),
+                };
+
+                if let Pattern::Identifier { name, type_hint: _ } = &pat.data {
+                    scope.aliases = Some(HashMap::from([(name.data.clone(), (idx, 1))]));
+                }
+
+                compile_pattern(
+                    pat_ty.clone(),
+                    pat.span,
+                    pat,
+                    Some(Reporter::Get { up: 1, idx }),
+                    false,
+                    &mut scope,
+                    true,
+                )?;
+
+                for statement in arm.data.body {
+                    compile_statement(statement, &mut scope)?;
+                }
+
+                let (arm_ty, tail) = arm
+                    .data
+                    .tail
+                    .map(|tail| compile_expression(tail.span.with(*tail.data), &mut scope))
+                    .transpose()?
+                    .unzip();
+                let arm_ty = arm_ty.unwrap_or(Type::Unit);
+                if let Some(ty) = &return_ty {
+                    if !ty.matches(&arm_ty) {
+                        return Err(Error::new(arm.span, format!("This match arm does not return the same type as the previous ones.\nPrevious types: {}\nThis one: {}", ty, arm_ty)));
+                    }
+                } else {
+                    return_ty = Some(arm_ty)
+                }
+
+                compiled_cases.push((pat_ty, scope.instructions, tail.map(Box::new)));
+            }
+
+            Ok((
+                return_ty.unwrap_or(Type::Unit),
+                Reporter::Match {
+                    target: idx,
+                    cases: compiled_cases,
                 },
             ))
         }
@@ -430,6 +517,8 @@ fn compile_block(
 ) -> Result<(Type, InstructionSet, Option<Reporter>)> {
     let mut scope = Scope {
         variables: HashMap::new(),
+        aliases: None,
+        types: HashMap::new(),
         instructions: InstructionSet::default(),
         parent: Some(scope),
     };
@@ -449,7 +538,7 @@ fn compile_block(
 
 pub fn is_mut(expression: Chunk<&Expression>, scope: &Scope) -> bool {
     match &expression.data {
-        Expression::Variable(name) => scope.get_var(name).map_or(false, |v| v.0.mutable),
+        Expression::Variable(name) => scope.get_var(name).is_some_and(|v| v.0.mutable),
         Expression::Deref(_) => true,
         Expression::Access(target, _) | Expression::DynAccess(target, _) => {
             is_mut(target.span.with(&*target.data), scope)

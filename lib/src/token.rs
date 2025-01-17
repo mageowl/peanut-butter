@@ -54,6 +54,8 @@ pub enum Token {
     KeywordIf,
     KeywordElse,
     KeywordRef,
-    KeywordAs,
     KeywordWhile,
+    KeywordFor,
+    KeywordIn,
+    KeywordMatch,
 }

@@ -1,9 +1,11 @@
 use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
-use builder::ModuleBuilder;
 use hashbrown::HashMap;
 
-use crate::{types::Type, value::Value};
+use crate::{
+    types::{partial::PartialType, Type},
+    value::Value,
+};
 
 pub mod builder;
 
@@ -21,6 +23,20 @@ pub struct ExternalConstant {
     pub value: Rc<RefCell<Value>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ExternalTypeAlias {
+    pub partial: PartialType,
+    pub generics: usize,
+}
+
+#[derive(Debug)]
+pub struct ExternalModule {
+    pub constants: HashMap<String, ExternalConstant>,
+    pub variables: HashMap<String, ExternalVariable>,
+    pub submodules: HashMap<String, ExternalModule>,
+    pub types: HashMap<String, ExternalTypeAlias>,
+}
+
 #[derive(Debug)]
 pub struct LocalModule {
     pub public_variables: Vec<String>,
@@ -32,23 +48,6 @@ impl LocalModule {
         Self {
             public_variables: Vec::new(),
             stack,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct ExternalModule {
-    pub constants: HashMap<String, ExternalConstant>,
-    pub variables: HashMap<String, ExternalVariable>,
-    pub submodules: HashMap<String, ExternalModule>,
-}
-
-impl ExternalModule {
-    pub fn builder() -> ModuleBuilder {
-        ModuleBuilder {
-            constants: HashMap::new(),
-            variables: HashMap::new(),
-            submodules: HashMap::new(),
         }
     }
 }

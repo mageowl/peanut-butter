@@ -32,15 +32,17 @@ impl TypeName {
 
         let mut generics = Vec::new();
 
-        if let Some(Token::Lt) = source.peek_token() {
+        let end = if let Some(Token::Lt) = source.peek_token() {
             source.next();
 
             let mut trailing_delimiter = true;
 
             loop {
                 if let Some(Token::Gt) = source.peek_token() {
-                    source.next();
-                    break;
+                    let Some(Ok(Chunk { span, .. })) = source.next() else {
+                        unreachable!()
+                    };
+                    break span.end;
                 } else if trailing_delimiter {
                     trailing_delimiter = false;
                     generics.push(TypeName::parse(source)?);
@@ -57,11 +59,13 @@ impl TypeName {
                     source.next();
                 }
             }
-        }
+        } else {
+            name.span.end
+        };
 
         Ok(Span {
             start: name.span.start,
-            end: source.pos(),
+            end,
         }
         .with(Self::Named { name, generics }))
     }
@@ -152,7 +156,11 @@ impl TypeName {
             start,
             end: source.pos(),
         }
-        .with(Self::Table(pairs)))
+        .with(if pairs.is_empty() {
+            Self::Unit
+        } else {
+            Self::Table(pairs)
+        }))
     }
 
     fn parse_reference(source: &mut TokenStream) -> Result<Chunk<Self>> {
@@ -207,7 +215,7 @@ impl TypeName {
 
         let return_ty = if let Some(Token::Arrow) = source.peek_token() {
             source.next();
-            Self::parse(source)?
+            Self::parse_single(source)?
         } else {
             Chunk {
                 span: end_span,
@@ -225,65 +233,21 @@ impl TypeName {
         }))
     }
 
-    fn parse_enum(source: &mut TokenStream) -> Result<Chunk<Self>> {
-        /*let span = parse_token(source, Token::KeywordEnum, "Expected enum type.")?;
-        parse_token(
-            source,
-            Token::BraceOpen,
-            "Expected open brace for enum variants.",
-        )?;
-
-        let mut map = HashMap::new();
-        let mut trailing_delimiter = true;
-        let end_span;
-
-        loop {
-            if let Some(Token::BraceClose) = source.peek_token() {
-                let Some(Ok(Chunk { span, .. })) = source.next() else {
-                    unreachable!()
-                };
-                end_span = span;
-                break;
-            } else if trailing_delimiter {
-                trailing_delimiter = false;
-
-                let name = parse_ident(source, "Expected a label for an enum variant")?;
-                parse_token(
-                    source,
-                    Token::Colon,
-                    "Expected an colon to separate the label from the type.",
-                )?;
-                map.insert(name, Self::parse(source)?);
-            } else {
-                return Err(match source.next() {
-                    Some(Ok(token)) => Error::new(token.span, "Expected a comma."),
-                    Some(Err(err)) => err,
-                    None => Error::new(
-                        Span::char(source.pos()),
-                        "Expected a closing parenthesis for fn type arguments.",
-                    ),
-                });
-            }
-
-            if let Some(Token::Semicolon) = source.peek_token() {
-                trailing_delimiter = true;
-                source.next();
-            }
-        }
-
-        Ok(Span {
-            start: span.start,
-            end: end_span.end,
-        }
-        .with(Self::Enum(map)))*/
-        todo!()
-    }
-
     fn parse_single(source: &mut TokenStream) -> Result<Chunk<Self>> {
         match source.peek_token() {
             Some(Token::KeywordRef) => Self::parse_reference(source),
             Some(Token::BracketOpen) => Self::parse_table(source),
             Some(Token::KeywordFunction) => Self::parse_fn(source),
+            Some(Token::ParenOpen) => {
+                source.next();
+                let ty = Self::parse(source);
+                parse_token(
+                    source,
+                    Token::ParenClose,
+                    "Missing closing parenthesis around a type.",
+                )?;
+                ty
+            }
             _ => Self::parse_named(source),
         }
     }

@@ -76,11 +76,11 @@ impl Error {
             self.message.insert_str(i + 1, "       ");
         }
 
-        println!("\n\x1b[31;1merror\x1b[0m: {msg}", msg = self.message);
+        println!("\n\x1b[31;1merror:\x1b[0m {msg}", msg = self.message);
     }
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug)]
 pub struct Warn {

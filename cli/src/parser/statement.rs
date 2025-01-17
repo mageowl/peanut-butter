@@ -8,14 +8,19 @@ use pbscript_lib::{
     token::Token,
 };
 
-use super::{block::Block, expression::Expression, type_name::TypeName, Parameter, Parse};
+use super::{
+    block::{Block, IntoBlock},
+    expression::Expression,
+    pattern::Pattern,
+    type_name::TypeName,
+    Parameter, Parse,
+};
 
 #[derive(Debug)]
 pub enum Statement {
     DefVariable {
         mutable: bool,
-        name: Chunk<String>,
-        type_hint: Option<Chunk<TypeName>>,
+        pattern: Chunk<Pattern>,
         value: Option<Chunk<Expression>>,
     },
     DefFunction {
@@ -23,7 +28,7 @@ pub enum Statement {
         name: Chunk<String>,
         parameters: Vec<Chunk<Parameter>>,
         return_type: Option<Chunk<TypeName>>,
-        body: Chunk<Expression>,
+        body: Chunk<Block>,
     },
     DefType {
         name: Chunk<String>,
@@ -37,10 +42,15 @@ pub enum Statement {
         op: AssignmentOperator,
     },
     Expression(Expression),
-    /*WhileLoop {
+    WhileLoop {
         condition: Chunk<Expression>,
-        block: Chunk<Block>,
-    },*/
+        body: Vec<Chunk<Statement>>,
+    },
+    ForLoop {
+        pattern: Chunk<Pattern>,
+        iter: Chunk<Expression>,
+        body: Vec<Chunk<Statement>>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,14 +72,7 @@ impl Statement {
             unreachable!()
         };
         let mutable = keyword == Token::KeywordMut;
-        let name = parse_ident(source, "Expected a variable name. Valid identifiers must include just letters, underscores, and numbers.")?;
-
-        let type_hint = if let Some(Token::Colon) = source.peek_token() {
-            source.next();
-            Some(TypeName::parse(source)?)
-        } else {
-            None
-        };
+        let name = Pattern::parse(source)?;
 
         let value = match source.peek_token() {
                 Some(Token::Equals) => {
@@ -91,8 +94,7 @@ impl Statement {
         }
         .with(Self::DefVariable {
             mutable,
-            name,
-            type_hint,
+            pattern: name,
             value,
         }))
     }
@@ -153,7 +155,7 @@ impl Statement {
             "Expected an equals sign to seperate function signature and body.",
         )?;
 
-        let body = Expression::parse(source)?;
+        let body = Expression::parse(source)?.into_block();
 
         Ok(Span {
             start: span.start,
@@ -265,6 +267,98 @@ impl Statement {
         }
         .with(Self::Assign { target, value, op }))
     }
+
+    fn parse_while(source: &mut TokenStream) -> Result<Chunk<Self>> {
+        let Span { start, .. } = parse_token(source, Token::KeywordWhile, "Expected while loop.")?;
+        let condition = Expression::parse(source)?;
+
+        parse_token(source, Token::BraceOpen, "Expected an open curly brace.")?;
+        let mut body = Vec::new();
+        let mut trailing_delimiter = true;
+
+        loop {
+            if trailing_delimiter {
+                trailing_delimiter = false;
+                if source.peek().is_some() && source.peek_token() != Some(&Token::BraceClose) {
+                    body.push(Statement::parse(source)?);
+                } else {
+                    break;
+                }
+            } else {
+                return Err(match source.next() {
+                    Some(Ok(token)) => Error::new(token.span, "Expected a semicolon."),
+                    Some(Err(err)) => err,
+                    None => Error::new(
+                        Span::char(source.pos()),
+                        "Expected a semicolon. While loops can't have a tailing expression.",
+                    ),
+                });
+            }
+
+            while let Some(Token::Semicolon) = source.peek_token() {
+                trailing_delimiter = true;
+                source.next();
+            }
+        }
+        let Span { end, .. } = parse_token(
+            source,
+            Token::BraceClose,
+            "Expected a closing curly brace for the while body.",
+        )?;
+
+        Ok(Span { start, end }.with(Self::WhileLoop { condition, body }))
+    }
+
+    fn parse_for(source: &mut TokenStream) -> Result<Chunk<Self>> {
+        let Span { start, .. } = parse_token(source, Token::KeywordFor, "Expected for loop.")?;
+        let pattern = Pattern::parse(source)?;
+        parse_token(
+            source,
+            Token::KeywordIn,
+            "Expected `in` keyword for for loop iterator.",
+        )?;
+        let iter = Expression::parse(source)?;
+
+        parse_token(source, Token::BraceOpen, "Expected an open curly brace.")?;
+        let mut body = Vec::new();
+        let mut trailing_delimiter = true;
+
+        loop {
+            if trailing_delimiter {
+                trailing_delimiter = false;
+                if source.peek().is_some() && source.peek_token() != Some(&Token::BraceClose) {
+                    body.push(Statement::parse(source)?);
+                } else {
+                    break;
+                }
+            } else {
+                return Err(match source.next() {
+                    Some(Ok(token)) => Error::new(token.span, "Expected a semicolon."),
+                    Some(Err(err)) => err,
+                    None => Error::new(
+                        Span::char(source.pos()),
+                        "Expected a semicolon. While loops can't have a tailing expression.",
+                    ),
+                });
+            }
+
+            while let Some(Token::Semicolon) = source.peek_token() {
+                trailing_delimiter = true;
+                source.next();
+            }
+        }
+        let Span { end, .. } = parse_token(
+            source,
+            Token::BraceClose,
+            "Expected a closing curly brace for the while body.",
+        )?;
+
+        Ok(Span { start, end }.with(Self::ForLoop {
+            pattern,
+            iter,
+            body,
+        }))
+    }
 }
 
 impl Parse for Statement {
@@ -281,6 +375,8 @@ impl Parse for Statement {
             Some(Token::KeywordLet) => Self::parse_def_variable(source),
             Some(Token::KeywordFunction) if ident_next => Self::parse_def_function(source, false),
             Some(Token::KeywordType) => Self::parse_def_type(source),
+            Some(Token::KeywordWhile) => Self::parse_while(source),
+            Some(Token::KeywordFor) => Self::parse_for(source),
             Some(_) => {
                 let expr = Expression::parse(source)?;
                 if let Some(

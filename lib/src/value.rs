@@ -2,11 +2,15 @@ use core::panic;
 use hashbrown::{Equivalent, HashMap};
 use std::{
     cell::RefCell,
-    fmt::{write, Debug, Display, Formatter},
+    fmt::{Debug, Display, Formatter},
+    hash::Hash,
     rc::Rc,
 };
 
-use crate::error::Result;
+use crate::{
+    error::Result,
+    types::{IntoType, Primitive, Type},
+};
 
 pub mod function;
 
@@ -32,10 +36,16 @@ impl Ord for Comparison {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord)]
 pub enum Key {
-    Named(String),
     Index(usize),
+    Named(String),
+}
+
+impl Key {
+    pub fn is_idx(&self) -> bool {
+        matches!(self, Key::Index(_))
+    }
 }
 
 impl Display for Key {
@@ -61,6 +71,15 @@ impl Equivalent<Key> for usize {
         match key {
             Key::Index(idx) => idx == self,
             Key::Named(_) => false,
+        }
+    }
+}
+
+impl Hash for Key {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Index(x) => x.hash(state),
+            Self::Named(x) => x.hash(state),
         }
     }
 }
@@ -92,7 +111,7 @@ impl Value {
         }
     }
 
-    fn fmt_table(
+    pub fn fmt_table(
         map: &HashMap<Key, Rc<RefCell<Value>>>,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
@@ -124,6 +143,21 @@ impl Value {
         f.write_str("\n]")?;
         Ok(())
     }
+
+    fn fmt_func(c: &Rc<dyn Call>, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("fn(")?;
+        for param in c.parameters() {
+            write!(f, "{param}")?
+        }
+        f.write_str(")")?;
+        let return_ty = c.return_ty();
+        match return_ty {
+            Type::Unit => (),
+            Type::Union(_) => write!(f, " -> ({return_ty})")?,
+            _ => write!(f, " -> {return_ty}")?,
+        }
+        Ok(())
+    }
 }
 
 impl PartialEq for Value {
@@ -150,7 +184,7 @@ impl Display for Value {
             Self::Number(n) => write!(f, "{n}"),
             Self::Boolean(b) => f.write_str(if *b { "true" } else { "false" }),
             Self::Table(map) => Self::fmt_table(map, f),
-            Self::Function(c) => f.write_str(c.to_str()),
+            Self::Function(c) => Self::fmt_func(c, f),
             Self::Reference(v) => write!(f, "ref {}", v.borrow()),
             Self::ImplicitRef(v) => write!(f, "&{}", v.borrow()),
             Self::Unit => write!(f, "[]"),
@@ -281,10 +315,46 @@ impl<T: From<Value>> From<Value> for HashMap<Key, T> {
         }
     }
 }
+impl<T: Into<Value>> From<Option<T>> for Value {
+    fn from(val: Option<T>) -> Self {
+        if let Some(val) = val {
+            val.into()
+        } else {
+            Value::Unit
+        }
+    }
+}
+impl<T: From<Value> + IntoType> From<Value> for Option<T> {
+    fn from(val: Value) -> Self {
+        match val {
+            Value::Unit => None,
+            Value::Table(t) if t.is_empty() => None,
+            _ => Some(val.into()),
+        }
+    }
+}
+impl From<Primitive> for Value {
+    fn from(value: Primitive) -> Self {
+        match value {
+            Primitive::String(str) => Self::String(str),
+            Primitive::Number(num) => Self::Number(num),
+            Primitive::Boolean(bool) => Self::Boolean(bool),
+        }
+    }
+}
+impl From<Value> for Primitive {
+    fn from(value: Value) -> Self {
+        match value {
+            Value::String(str) => Self::String(str),
+            Value::Number(num) => Self::Number(num),
+            Value::Boolean(bool) => Self::Boolean(bool),
+            _ => panic!("Expected a primitive to move across a language barrier."),
+        }
+    }
+}
 
 pub trait Call {
     fn call(&self, args: Vec<Value>) -> Result<Value>;
-    fn to_str(&self) -> &str {
-        "[internal fn]"
-    }
+    fn parameters(&self) -> &Vec<Type>;
+    fn return_ty(&self) -> &Type;
 }

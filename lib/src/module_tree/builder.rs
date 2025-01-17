@@ -1,9 +1,12 @@
-use crate::value::{function::FFIWrapper, Call};
+use crate::{
+    types::partial::PartialType,
+    value::{function::FFIWrapper, Call},
+};
 use std::{cell::RefCell, rc::Rc};
 
 use hashbrown::HashMap;
 
-use super::{ExternalConstant, ExternalModule, ExternalVariable};
+use super::{ExternalConstant, ExternalModule, ExternalTypeAlias, ExternalVariable};
 use crate::{
     types::Type,
     value::{function::FFIFunction, Value},
@@ -13,6 +16,18 @@ pub struct ModuleBuilder {
     pub constants: HashMap<String, ExternalConstant>,
     pub variables: HashMap<String, ExternalVariable>,
     pub submodules: HashMap<String, ExternalModule>,
+    pub types: HashMap<String, ExternalTypeAlias>,
+}
+
+impl ExternalModule {
+    pub fn builder() -> ModuleBuilder {
+        ModuleBuilder {
+            constants: HashMap::new(),
+            variables: HashMap::new(),
+            submodules: HashMap::new(),
+            types: HashMap::new(),
+        }
+    }
 }
 
 impl ModuleBuilder {
@@ -21,10 +36,15 @@ impl ModuleBuilder {
             constants: self.constants,
             variables: self.variables,
             submodules: self.submodules,
+            types: self.types,
         }
     }
 
-    pub fn function<T: FFIFunction<M> + 'static, M: 'static>(mut self, name: &str, func: T) -> Self
+    pub fn add_function<T: FFIFunction<M> + 'static, M: 'static>(
+        mut self,
+        name: &str,
+        func: T,
+    ) -> Self
     where
         FFIWrapper<T, M>: Call,
     {
@@ -42,6 +62,20 @@ impl ModuleBuilder {
             self
         } else {
             panic!("A constant of name {name} has already been declared in this module.");
+        }
+    }
+    pub fn add_type(mut self, name: &str, partial: PartialType) -> Self {
+        if !self.types.contains_key(name) {
+            self.types.insert(
+                name.to_string(),
+                ExternalTypeAlias {
+                    generics: partial.get_max_generics(),
+                    partial,
+                },
+            );
+            self
+        } else {
+            panic!("A type of name {name} has already been declared in this module.");
         }
     }
 }

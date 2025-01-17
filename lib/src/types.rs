@@ -4,6 +4,8 @@ use hashbrown::HashMap;
 
 use crate::value::{Key, Value};
 
+pub mod partial;
+
 #[derive(Debug, Clone)]
 pub enum Type {
     Unit,
@@ -45,13 +47,15 @@ impl Type {
             _ => false,
         }
     }
-
+    pub fn is_union(&self) -> bool {
+        matches!(self, Type::Union(_))
+    }
     pub fn is_list(&self, item_type: &Type) -> bool {
         match self {
             Type::List(t1) => *item_type == **t1,
             Type::Table(map) => map
                 .iter()
-                .all(|(k, v)| v == item_type && matches!(k, Key::Index(_))),
+                .all(|(k, v)| item_type.matches(v) && matches!(k, Key::Index(_))),
             _ => false,
         }
     }
@@ -69,10 +73,12 @@ impl Type {
             (Self::String, Self::String) => true,
             (Self::Number, Self::Number) => true,
             (Self::Boolean, Self::Boolean) => true,
-            (a, b) if a.is_unit() && b.is_unit() => true,
+
+            (Self::Unit, Self::Unit | Self::Table(_) | Self::List(_) | Self::Map(_)) => true,
             (Self::Table(m1), Self::Table(m2)) => m1
                 .iter()
                 .all(|(k, t)| m2.contains_key(k) && t.matches(&m2[k])),
+
             (
                 Self::Fn {
                     parameters: p1,
@@ -82,11 +88,64 @@ impl Type {
                     parameters: p2,
                     return_type: r2,
                 },
-            ) => p1.iter().zip(p2).all(|(a, b)| a.matches(b)) && r1.matches(r2),
+            ) => {
+                p1.len() == p2.len()
+                    && p1.iter().zip(p2).all(|(a, b)| a.matches(b))
+                    && r1.matches(r2)
+            }
+
             (Self::Ref(t1), Self::Ref(t2)) => t1.matches(t2),
 
             (Self::List(a), b) | (b, Self::List(a)) => b.is_list(a),
             (Self::Map(a), b) | (b, Self::Map(a)) => b.is_map(a),
+
+            (Self::Union(a), Self::Union(b)) => b.iter().all(|b| a.iter().any(|a| a.matches(b))),
+            (Self::Union(a), b) => a.iter().any(|a| a.matches(b)),
+
+            _ => false,
+        }
+    }
+
+    pub fn matches_val(&self, other: &Value) -> bool {
+        match (self, other) {
+            (_, Value::ImplicitRef(rc)) => self.matches_val(&rc.borrow()),
+
+            (Self::String, Value::String(_)) => true,
+            (Self::Number, Value::Number(_)) => true,
+            (Self::Boolean, Value::Boolean(_)) => true,
+
+            (a, Value::Unit) if a.is_unit() => true,
+            (a, Value::Table(_)) if a.is_unit() => true,
+            (Self::Table(a), Value::Table(b)) => a
+                .iter()
+                .all(|(k, t)| b.contains_key(k) && t.matches_val(&b[k].borrow())),
+            (
+                Self::Fn {
+                    parameters: p1,
+                    return_type: r1,
+                },
+                Value::Function(c),
+            ) => {
+                let p2 = c.parameters();
+                if !(p1.len() == p2.len() && p1.iter().zip(p2).all(|(p1, p2)| p1.matches(p2))) {
+                    return false;
+                }
+
+                let r2 = c.return_ty();
+                r1.matches(r2)
+            }
+
+            (Self::Ref(t), Value::Reference(rc)) => t.matches_val(&rc.borrow()),
+
+            (Self::List(a), Value::Table(b)) => b.iter().all(|(k, v)| {
+                if matches!(k, Key::Index(_)) {
+                    a.matches_val(&v.borrow())
+                } else {
+                    true
+                }
+            }),
+            (Self::Map(a), Value::Table(b)) => b.iter().all(|(_, v)| a.matches_val(&v.borrow())),
+            (Self::Union(a), b) => a.iter().any(|a| a.matches_val(b)),
 
             _ => false,
         }
@@ -99,12 +158,15 @@ impl Type {
             if i > 0 {
                 f.write_str(",\n")?;
             }
-            write!(f, "{}", map[&i])?;
+            write!(f, "    {}", map[&i])?;
 
             i += 1;
         }
 
-        for (k, v) in map.iter() {
+        let mut pairs = map.iter().collect::<Vec<_>>();
+        pairs.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+        for (k, v) in pairs {
             if let Some(key) = match k {
                 Key::Named(k) => Some(k.to_string()),
                 Key::Index(k) if k > &i => Some(k.to_string()),
@@ -113,12 +175,12 @@ impl Type {
                 if i > 0 {
                     f.write_str(",\n")?;
                 }
-                write!(f, "{key} = {}", v)?;
+                write!(f, "    {key}: {}", v)?;
 
                 i += 1;
             }
         }
-        f.write_str("]")?;
+        f.write_str("\n]")?;
         Ok(())
     }
 }
@@ -129,6 +191,7 @@ impl PartialEq for Type {
             (Self::String, Self::String) => true,
             (Self::Number, Self::Number) => true,
             (Self::Boolean, Self::Boolean) => true,
+            (a, b) if a.is_unit() && b.is_unit() => true,
             (Self::Table(m1), Self::Table(m2)) => m1 == m2,
             (
                 Self::Fn {
@@ -143,7 +206,8 @@ impl PartialEq for Type {
             (Self::Ref(t1), Self::Ref(t2)) => t1 == t2,
             (Self::List(a), b) | (b, Self::List(a)) => b.is_list(a),
             (Self::Map(a), b) | (b, Self::Map(a)) => b.is_map(a),
-            (a, b) => a.is_unit() && b.is_unit(),
+
+            _ => false,
         }
     }
 }
@@ -166,8 +230,10 @@ impl Display for Type {
                     write!(f, "{param}")?
                 }
                 f.write_str(")")?;
-                if **return_type != Type::Unit {
-                    write!(f, " -> {return_type}")?;
+                match **return_type {
+                    Type::Unit => (),
+                    Type::Union(_) => write!(f, " -> ({return_type})")?,
+                    _ => write!(f, " -> {return_type}")?,
                 }
                 Ok(())
             }
@@ -176,7 +242,7 @@ impl Display for Type {
                 let mut iter = vec.iter();
                 write!(f, "{}", iter.next().unwrap_or(&Type::Unit))?;
                 for ty in iter {
-                    write!(f, "| {}", ty)?;
+                    write!(f, " | {}", ty)?;
                 }
                 Ok(())
             }
@@ -186,7 +252,7 @@ impl Display for Type {
     }
 }
 
-pub trait IntoType: From<Value> + Into<Value> {
+pub trait IntoType {
     fn into_type() -> Type;
 }
 
@@ -206,3 +272,12 @@ impl_into_type!(f64 => Type::Number);
 impl_into_type!(bool => Type::Boolean);
 impl_into_type!(Vec<T> => Type::List(Box::new(T::into_type())), T);
 impl_into_type!(HashMap<Key, T> => Type::Map(Box::new(T::into_type())), T);
+impl_into_type!(HashMap<Key, Value> => Type::Unit);
+impl_into_type!(Option<T> => Type::Union(vec![Type::Unit, T::into_type()]), T);
+
+pub enum Primitive {
+    Boolean(bool),
+    Number(f64),
+    String(String),
+}
+impl_into_type!(Primitive => Type::Union(vec![Type::String, Type::Number, Type::Boolean]));
