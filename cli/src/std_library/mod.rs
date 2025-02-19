@@ -3,6 +3,7 @@ use pbscript_lib::module_tree::ExternalModule;
 pub mod convert;
 pub mod io;
 pub mod iter;
+pub mod process;
 
 pub fn prelude() -> ExternalModule {
     let mut builder = ExternalModule::builder();

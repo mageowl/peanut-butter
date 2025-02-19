@@ -224,10 +224,6 @@ pub fn compile_expression(
                     ));
                 }
 
-                let tail_span = block
-                    .tail
-                    .as_ref()
-                    .map_or_else(|| Span::char(block.span.end), |t| t.span);
                 let (ty, instructions, tail) = compile_block(block.data, scope)?;
                 if !types.contains(&ty) {
                     types.push(ty);
@@ -260,8 +256,10 @@ pub fn compile_expression(
             ))
         }
         Expression::Match { value, cases } => {
+            let value_span = value.span;
             let (value_ty, value) = compile_expression(value.span.with(*value.data), scope)?;
-            let mut return_ty: Option<Type> = None;
+            let mut prev_cases = Vec::new();
+            let mut return_ty: Vec<Type> = Vec::new();
             let mut compiled_cases = Vec::new();
 
             let idx = scope.instructions.allocation;
@@ -283,15 +281,27 @@ pub fn compile_expression(
                     )?
                 };
                 if !value_ty.matches(&pat_ty) {
-                    return Err(Error::new(pat.span, format!("This pattern will never match the expression type.\nExpression type: {}\nPattern type: {}", value_ty, pat_ty)));
+                    return Err(Error::new(
+                        pat.span,
+                        format!(
+                            "This pattern will never match the expression type.\nExpression type: {}\nPattern type: {}",
+                            value_ty,
+                            pat_ty
+                        )
+                    ));
                 }
-                // TODO: look for redundant patterns
-                // ```peanut_butter
-                // match /* var with ty Option<num> */ {
-                //     _ = [],
-                //     n: num = /* redundant */
-                // }
-                // ```
+
+                let mut flat = pat_ty.clone().flat();
+                if flat
+                    .iter()
+                    .all(|b| prev_cases.iter().any(|a: &Type| a.matches(b)))
+                {
+                    return Err(Error::new(
+                        pat.span,
+                        "This pattern is redundant because a previous case covers it.",
+                    ));
+                }
+                prev_cases.append(&mut flat);
 
                 let mut scope = Scope {
                     variables: HashMap::new(),
@@ -326,19 +336,28 @@ pub fn compile_expression(
                     .transpose()?
                     .unzip();
                 let arm_ty = arm_ty.unwrap_or(Type::Unit);
-                if let Some(ty) = &return_ty {
-                    if !ty.matches(&arm_ty) {
-                        return Err(Error::new(arm.span, format!("This match arm does not return the same type as the previous ones.\nPrevious types: {}\nThis one: {}", ty, arm_ty)));
-                    }
-                } else {
-                    return_ty = Some(arm_ty)
+                if !return_ty.contains(&arm_ty) {
+                    return_ty.push(arm_ty);
                 }
 
                 compiled_cases.push((pat_ty, scope.instructions, tail.map(Box::new)));
             }
 
+            let cases_ty = Type::Union(prev_cases);
+            let value_ty = Type::Union(value_ty.flat());
+            if !cases_ty.matches(&value_ty) {
+                return Err(Error::new(
+                    value_span,
+                    format!("The match statement does not cover all the cases of the value.\nValue type: {value_ty}\nCases: {cases_ty}"),
+                ));
+            }
+
             Ok((
-                return_ty.unwrap_or(Type::Unit),
+                if return_ty.len() == 1 {
+                    return_ty.remove(0)
+                } else {
+                    Type::Union(return_ty)
+                },
                 Reporter::Match {
                     target: idx,
                     cases: compiled_cases,

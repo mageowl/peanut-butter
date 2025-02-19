@@ -65,6 +65,7 @@ impl Pattern {
 
         let mut trailing_delimiter = true;
         let mut pairs = HashMap::new();
+        let mut next_index = 0;
 
         loop {
             if let Some(Token::BracketClose) = source.peek_token() {
@@ -104,24 +105,35 @@ impl Pattern {
                             return Err(Error::new(key_span, "I can only use round numbers that are zero or more as keys in a table."));
                         }
                     }
-                    Some(_) => match Self::parse(source)? {
-                        Chunk {
-                            data: Self::Identifier { name, type_hint },
-                            span,
-                        } => {
-                            pairs.insert(
-                                name.span.with(Key::Named(name.data.clone())),
-                                span.with(Self::Identifier { name, type_hint }),
-                            );
-                        }
-                        Chunk { span, .. } => {
-                            return Err(Error::new(
+                    Some(Token::KeywordWith) => {
+                        source.next();
+
+                        match Self::parse(source)? {
+                            Chunk {
+                                data: Self::Identifier { name, type_hint },
                                 span,
-                                "Non-identifier patterns must be labeled inside tables.
-If you meant to use this as a indexed item, put a numbered label on it: `0 = /* pattern */`",
-                            ))
+                            } => {
+                                pairs.insert(
+                                    name.span.with(Key::Named(name.data.clone())),
+                                    span.with(Self::Identifier { name, type_hint }),
+                                );
+                            }
+                            Chunk { span, .. } => {
+                                return Err(Error::new(
+                                    span,
+                                    "I can only unwrap named items from a table, not tables.",
+                                ))
+                            }
                         }
-                    },
+                    }
+                    Some(_) => {
+                        let key_span = Span::char(source.pos());
+                        let key = next_index;
+                        next_index += 1;
+
+                        let value = Self::parse(source)?;
+                        pairs.insert(key_span.with(Key::Index(key)), value);
+                    }
                     None => {
                         source.next().transpose()?;
                         return Err(Error::new(

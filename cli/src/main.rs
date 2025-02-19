@@ -83,6 +83,8 @@ enum Command {
         compile: bool,
         #[arg(short = 'p', long = "parse")]
         parse: bool,
+        #[arg(short = 'l', long = "lexer")]
+        lexical: bool,
     },
 }
 
@@ -108,6 +110,7 @@ fn main() -> ExitCode {
             file,
             compile: flag_compile,
             parse: flag_parse,
+            lexical: flag_lexical,
         } => {
             let file = match read_file(file) {
                 Ok(file) => file,
@@ -115,6 +118,11 @@ fn main() -> ExitCode {
             };
 
             let mut token_stream = TokenStream::from(file.as_str());
+            if flag_lexical {
+                dbg!(token_stream.collect::<Vec<_>>());
+                return ExitCode::SUCCESS;
+            }
+
             let program = match Program::parse(&mut token_stream) {
                 Ok(p) => p,
                 Err(e) => {

@@ -378,8 +378,8 @@ Consider using a match statement:
                             return Err(Error::new(
                                 iter_span,
                                 format!(
-                                    "This value is not an iterator.\
-                                    Expected type: fn() -> (T | [])\
+                                    "This value is not an iterator.\n\
+                                    Expected type: fn() -> (T | [])\n\
                                     Found: {iter_ty}"
                                 ),
                             ));
@@ -409,8 +409,11 @@ Consider using a match statement:
                 _ => {
                     return Err(Error::new(
                         iter_span,
-                        "This value is not an iterator.\
-                        Only maps and lists can be implicitly converted into an iterator.",
+                        format!(
+                            "This value is not an iterator.\n\
+                            Only maps and lists can be implicitly converted into an iterator.\n\
+                            Expression type: {iter_ty}"
+                        ),
                     ))
                 }
             };

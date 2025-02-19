@@ -13,18 +13,13 @@ fn my_range(min: num, max: num) -> Iter<num> = {
 fn some_or_empty(x: num | bool | str | []) -> str
 	= match x {
 		x: num | bool | str = to_str(x);
-		[] = "";
+		[] = "none";
 	};
 
 for i in my_range(0, 3) {
 	println("For iteration #"to_str(i));
 };
 
-let iter = my_range(0, 10);
-println("Custom next call #"some_or_empty(iter()));
-println("Custom next call #"some_or_empty(iter()));
-println("Custom next call #"some_or_empty(iter()));
-println("Custom next call #"some_or_empty(iter()));
-
-let rest = collect(iter);
-println("Rest of itererator: "fmt_tbl(rest));
+for i in [0, 1, 2] {
+	println("item = "to_str(i));
+};

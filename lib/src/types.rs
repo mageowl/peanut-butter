@@ -1,4 +1,7 @@
-use std::fmt::{Display, Formatter};
+use std::{
+    fmt::{Display, Formatter},
+    iter,
+};
 
 use hashbrown::HashMap;
 
@@ -106,6 +109,13 @@ impl Type {
         }
     }
 
+    pub fn matches_union(&self, other: &[Self]) -> bool {
+        match self {
+            Self::Union(a) => other.iter().all(|b| a.iter().any(|a| a.matches(b))),
+            _ => false,
+        }
+    }
+
     pub fn matches_val(&self, other: &Value) -> bool {
         match (self, other) {
             (_, Value::ImplicitRef(rc)) => self.matches_val(&rc.borrow()),
@@ -148,6 +158,96 @@ impl Type {
             (Self::Union(a), b) => a.iter().any(|a| a.matches_val(b)),
 
             _ => false,
+        }
+    }
+
+    pub fn flat(self) -> Vec<Self> {
+        match self {
+            Self::Union(unflat) => {
+                let mut vec = Vec::new();
+                for ty in unflat {
+                    vec.append(&mut ty.flat());
+                }
+                vec
+            }
+            Self::Table(tbl) if !tbl.is_empty() => {
+                let mut idx = vec![0; tbl.len()];
+                let map: Vec<_> = tbl.into_iter().map(|(k, v)| (k, v.flat())).collect();
+                let mut vec = Vec::new();
+
+                'top: loop {
+                    vec.push(Type::Table(
+                        map.iter()
+                            .enumerate()
+                            .map(|(i, (k, v))| (k.clone(), v[idx[i]].clone()))
+                            .collect(),
+                    ));
+
+                    for (j, i) in idx.iter_mut().enumerate() {
+                        *i += 1;
+                        if *i >= map[j].1.len() {
+                            *i = 0;
+                            if j == map.len() - 1 {
+                                break 'top;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
+                vec
+            }
+            Self::Fn {
+                parameters,
+                return_type,
+            } => {
+                let mut idx = vec![0; parameters.len() + 1];
+                let map: Vec<_> = iter::once(*return_type)
+                    .chain(parameters)
+                    .map(Self::flat)
+                    .collect();
+                let mut vec = Vec::new();
+
+                'top: loop {
+                    let mut iter = map.iter().enumerate().map(|(i, v)| v[idx[i]].clone());
+                    vec.push(Type::Fn {
+                        #[allow(clippy::unwrap_used)]
+                        return_type: Box::new(iter.next().unwrap()),
+                        parameters: iter.collect(),
+                    });
+
+                    for (j, i) in idx.iter_mut().enumerate() {
+                        *i += 1;
+                        if *i >= map[j].len() {
+                            *i = 0;
+                            if j == map.len() - 1 {
+                                break 'top;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
+                vec
+            }
+            Self::Ref(t) => t
+                .flat()
+                .into_iter()
+                .map(|t| Self::Ref(Box::new(t)))
+                .collect(),
+            Self::List(t) => t
+                .flat()
+                .into_iter()
+                .map(|t| Self::List(Box::new(t)))
+                .collect(),
+            Self::Map(t) => t
+                .flat()
+                .into_iter()
+                .map(|t| Self::Map(Box::new(t)))
+                .collect(),
+            _ => vec![self],
         }
     }
 

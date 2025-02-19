@@ -268,7 +268,8 @@ impl Parse for TypeName {
 
             Ok(Span {
                 start,
-                end: source.pos(),
+                #[allow(clippy::unwrap_used)]
+                end: variants.last().unwrap().span.end,
             }
             .with(Self::Union(variants)))
         } else {

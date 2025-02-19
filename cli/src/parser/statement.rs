@@ -35,6 +35,10 @@ pub enum Statement {
         generics: Vec<Chunk<String>>,
         value: Chunk<TypeName>,
     },
+    Use {
+        path: Vec<Chunk<String>>,
+        pattern: Option<Chunk<Pattern>>,
+    },
 
     Assign {
         target: Chunk<Expression>,

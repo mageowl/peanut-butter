@@ -21,7 +21,7 @@ pub(super) fn add_to_prelude(builder: ModuleBuilder) -> ModuleBuilder {
 
 #[expect(non_snake_case)]
 fn type_Iter() -> PartialType {
-    partial_ty!(fn() -> { {generic 0} | {[]} })
+    partial_ty!(fn() -> { {generic 0} | [] })
 }
 
 // TODO: Generics

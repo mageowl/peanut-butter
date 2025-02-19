@@ -88,12 +88,10 @@ impl IntoBlock for Chunk<Expression> {
 
 impl Expression {
     fn parse_table(source: &mut TokenStream) -> Result<Chunk<Self>> {
-        let start = source.pos();
+        let Span { start, .. } = parse_token(source, Token::BracketOpen, "Expected a table")?;
         let mut pairs = HashMap::new();
         let mut trailing_delimiter = true;
         let mut next_index = 0;
-
-        source.next(); // Skip opening bracket
 
         loop {
             if let Some(Token::BracketClose) = source.peek_token() {
