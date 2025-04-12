@@ -30,6 +30,7 @@ pub enum Expression {
     DynAccess(Chunk<Box<Expression>>, Chunk<Box<Expression>>),
     Call {
         value: Chunk<Box<Expression>>,
+        generics: Vec<Chunk<TypeName>>,
         args: Vec<Chunk<Expression>>,
     },
 
@@ -266,6 +267,7 @@ impl Expression {
 
     fn parse_function_call(
         source: &mut TokenStream,
+        generics: Vec<Chunk<TypeName>>,
         value: Chunk<Box<Expression>>,
     ) -> Result<Chunk<Self>> {
         let mut args = Vec::new();
@@ -295,7 +297,46 @@ impl Expression {
             start: value.span.start,
             end: source.pos(),
         }
-        .with(Self::Call { value, args }))
+        .with(Self::Call {
+            value,
+            generics,
+            args,
+        }))
+    }
+    fn parse_function_call_generics(
+        source: &mut TokenStream,
+        value: Chunk<Box<Expression>>,
+    ) -> Result<Chunk<Self>> {
+        let mut generics = Vec::new();
+        let mut trailing_delimiter = true;
+        loop {
+            if let Some(Token::Gt) = source.peek_token() {
+                source.next();
+                break;
+            } else if trailing_delimiter {
+                trailing_delimiter = false;
+                generics.push(TypeName::parse(source)?);
+            } else {
+                return Err(match source.next() {
+                    Some(Ok(token)) => Error::new(token.span, "Expected a comma."),
+                    Some(Err(err)) => err,
+                    None => Error::new(Span::char(source.pos()), "Expected a comma."),
+                });
+            }
+
+            if let Some(Token::Comma) = source.peek_token() {
+                trailing_delimiter = true;
+                source.next();
+            }
+        }
+
+        parse_token(
+            source,
+            Token::ParenOpen,
+            "Expected arguments for a function.",
+        )?;
+
+        Self::parse_function_call(source, generics, value)
     }
 
     fn parse_if(source: &mut TokenStream) -> Result<Chunk<Self>> {
@@ -498,11 +539,21 @@ impl Expression {
             }
         };
 
-        while let Some(Token::Dot | Token::BracketOpen | Token::ParenOpen) = source.peek_token() {
+        while let Some(Token::Dot | Token::Colon | Token::BracketOpen | Token::ParenOpen) =
+            source.peek_token()
+        {
             #[allow(clippy::unwrap_used)]
             match source.next().unwrap()?.data {
                 Token::ParenOpen => {
-                    expr = Self::parse_function_call(source, expr.as_box())?;
+                    expr = Self::parse_function_call(source, Vec::new(), expr.as_box())?;
+                }
+                Token::Colon => {
+                    if let Some(Token::Lt) = source.peek_token() {
+                        source.next();
+                        expr = Self::parse_function_call_generics(source, expr.as_box())?;
+                    } else {
+                        todo!()
+                    }
                 }
                 Token::Dot => {
                     if let Some(Token::KeywordRef) = source.peek_token() {

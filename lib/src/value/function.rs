@@ -14,11 +14,11 @@ pub trait FFIFunction<Marker>: Sized {
     fn return_ty() -> Type;
 }
 
-pub struct FFIWrapper<T, M> {
+pub struct FFIWrapper<T, Marker> {
     function: T,
     parameters: Vec<Type>,
     return_ty: Type,
-    phantom: PhantomData<M>,
+    phantom: PhantomData<Marker>,
 }
 
 pub struct PbFunction<Args, R> {

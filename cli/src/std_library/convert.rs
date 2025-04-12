@@ -15,9 +15,7 @@ pub fn build() -> ExternalModule {
 }
 
 pub(super) fn add_to_prelude(builder: ModuleBuilder) -> ModuleBuilder {
-    builder
-        .add_function("to_str", to_str)
-        .add_function("fmt_tbl", fmt_tbl)
+    builder.add_function("to_str", to_str)
 }
 
 fn to_str(x: Primitive) -> Result<String> {

@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     error::Result,
-    types::{IntoType, Primitive, Type},
+    types::{GenericType, IntoType, Primitive, Type},
 };
 
 pub mod function;
@@ -57,7 +57,7 @@ impl Display for Key {
     }
 }
 
-impl Equivalent<Key> for String {
+impl Equivalent<Key> for str {
     fn equivalent(&self, key: &Key) -> bool {
         match key {
             Key::Named(name) => name == self,
@@ -350,6 +350,16 @@ impl From<Value> for Primitive {
             Value::Boolean(bool) => Self::Boolean(bool),
             _ => panic!("Expected a primitive to move across a language barrier."),
         }
+    }
+}
+impl<const ID: usize> From<Value> for GenericType<ID> {
+    fn from(value: Value) -> Self {
+        Self { value }
+    }
+}
+impl<const ID: usize> From<GenericType<ID>> for Value {
+    fn from(value: GenericType<ID>) -> Self {
+        value.value
     }
 }
 

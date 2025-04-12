@@ -27,6 +27,7 @@ pub enum Statement {
         mutable: bool,
         name: Chunk<String>,
         parameters: Vec<Chunk<Parameter>>,
+        generics: Vec<Chunk<String>>,
         return_type: Option<Chunk<TypeName>>,
         body: Chunk<Block>,
     },
@@ -35,11 +36,10 @@ pub enum Statement {
         generics: Vec<Chunk<String>>,
         value: Chunk<TypeName>,
     },
-    Use {
-        path: Vec<Chunk<String>>,
-        pattern: Option<Chunk<Pattern>>,
-    },
-
+    // Use {
+    //     path: Vec<Chunk<String>>,
+    //     pattern: Option<Chunk<Pattern>>,
+    // },
     Assign {
         target: Chunk<Expression>,
         value: Chunk<Expression>,
@@ -116,6 +116,41 @@ impl Statement {
             "Expected a funtion name. Valid identifiers must include just letters, underscores, and numbers.",
         )?;
 
+        let mut generics = Vec::new();
+        if let Some(Token::Colon) = source.peek_token() {
+            source.next();
+            parse_token(
+                source,
+                Token::Lt,
+                "Expected an opening angle bracket to start generic type list.",
+            );
+
+            let mut trailing_delimiter = true;
+            loop {
+                if let Some(Token::Gt) = source.peek_token() {
+                    source.next();
+                    break;
+                } else if trailing_delimiter {
+                    trailing_delimiter = false;
+                    generics.push(parse_ident(
+                        source,
+                        "Expected a type name for function generics.",
+                    )?);
+                } else {
+                    return Err(match source.next() {
+                        Some(Ok(token)) => Error::new(token.span, "Expected a comma."),
+                        Some(Err(err)) => err,
+                        None => Error::new(Span::char(source.pos()), "Expected a comma."),
+                    });
+                }
+
+                if let Some(Token::Comma) = source.peek_token() {
+                    trailing_delimiter = true;
+                    source.next();
+                }
+            }
+        }
+
         parse_token(
             source,
             Token::ParenOpen,
@@ -168,6 +203,7 @@ impl Statement {
         .with(Self::DefFunction {
             mutable: false,
             name,
+            generics,
             parameters: args,
             return_type,
             body,

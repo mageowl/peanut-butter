@@ -1,13 +1,14 @@
 use std::{
     fmt::{Display, Formatter},
     iter,
+    ops::Add,
 };
 
 use hashbrown::HashMap;
 
 use crate::value::{Key, Value};
 
-pub mod partial;
+mod generated;
 
 #[derive(Debug, Clone)]
 pub enum Type {
@@ -24,6 +25,10 @@ pub enum Type {
     Union(Vec<Type>),
     List(Box<Type>),
     Map(Box<Type>),
+    Generic {
+        id: usize,
+        name: String,
+    },
 }
 
 impl Type {
@@ -40,6 +45,7 @@ impl Type {
             Type::Union(_) => "union",
             Type::List(_) => "list",
             Type::Map(_) => "map",
+            Type::Generic { .. } => "generic type",
         }
     }
 
@@ -105,13 +111,8 @@ impl Type {
             (Self::Union(a), Self::Union(b)) => b.iter().all(|b| a.iter().any(|a| a.matches(b))),
             (Self::Union(a), b) => a.iter().any(|a| a.matches(b)),
 
-            _ => false,
-        }
-    }
+            (Self::Generic { id: a, .. }, Self::Generic { id: b, .. }) => a == b,
 
-    pub fn matches_union(&self, other: &[Self]) -> bool {
-        match self {
-            Self::Union(a) => other.iter().all(|b| a.iter().any(|a| a.matches(b))),
             _ => false,
         }
     }
@@ -283,6 +284,64 @@ impl Type {
         f.write_str("\n]")?;
         Ok(())
     }
+
+    pub fn complete(self, generics: &Vec<Type>) -> Type {
+        match self {
+            Self::Unit => Type::Unit,
+            Self::String => Type::String,
+            Self::Number => Type::Number,
+            Self::Boolean => Type::Boolean,
+            Self::Table(map) => Type::Table(
+                map.into_iter()
+                    .map(|(k, v)| (k, v.complete(generics)))
+                    .collect(),
+            ),
+            Self::Ref(ty) => Type::Ref(Box::new(ty.complete(generics))),
+            Self::Union(vec) => {
+                Type::Union(vec.into_iter().map(|v| v.complete(generics)).collect())
+            }
+            Self::List(ty) => Type::List(Box::new(ty.complete(generics))),
+            Self::Map(ty) => Type::Map(Box::new(ty.complete(generics))),
+            Self::Fn {
+                parameters,
+                return_type,
+            } => Type::Fn {
+                parameters: parameters
+                    .into_iter()
+                    .map(|v| v.complete(generics))
+                    .collect(),
+                return_type: Box::new(return_type.complete(generics)),
+            },
+            Self::Generic { id, .. } => generics[id].clone(),
+        }
+    }
+
+    // Note to self: this function could cause problems down the road if it is passed a type that has its own generics.
+    // example:
+    // ```
+    // type First<A, B> = A;
+    // type Second<T> = First<num, T>;
+    // ```
+    // Type `Second` should not have 2 max generics.
+    pub fn get_max_generics(&self) -> usize {
+        match self {
+            Self::Generic { id, .. } => *id + 1,
+            Self::Table(map) => map.values().map(Self::get_max_generics).max().unwrap_or(0),
+            Self::Union(v) => v.iter().map(Self::get_max_generics).max().unwrap_or(0),
+            Self::List(ty) => ty.get_max_generics(),
+            Self::Map(ty) => ty.get_max_generics(),
+            Self::Fn {
+                parameters,
+                return_type,
+            } => parameters
+                .iter()
+                .map(Self::get_max_generics)
+                .max()
+                .unwrap_or(0)
+                .max(return_type.get_max_generics()),
+            _ => 0,
+        }
+    }
 }
 
 impl PartialEq for Type {
@@ -340,14 +399,140 @@ impl Display for Type {
             Type::Ref(ty) => write!(f, "ref {ty}"),
             Type::Union(vec) => {
                 let mut iter = vec.iter();
-                write!(f, "{}", iter.next().unwrap_or(&Type::Unit))?;
+                write!(f, "({}", iter.next().unwrap_or(&Type::Unit))?;
                 for ty in iter {
                     write!(f, " | {}", ty)?;
                 }
-                Ok(())
+                f.write_str(")")
             }
             Type::List(ty) => write!(f, "list<{ty}>"),
             Type::Map(ty) => write!(f, "map<{ty}>"),
+            Type::Generic { id: _, name } => write!(f, "generic {name}"),
+        }
+    }
+}
+
+#[derive(PartialEq, Eq)]
+pub enum GenericMatches {
+    NotEqual,
+    Empty,
+    Matches(HashMap<usize, Type>),
+}
+
+impl Add for GenericMatches {
+    type Output = GenericMatches;
+    fn add(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Self::NotEqual, _) | (_, Self::NotEqual) => Self::NotEqual,
+            (Self::Matches(m), Self::Empty) | (Self::Empty, Self::Matches(m)) => Self::Matches(m),
+            (Self::Matches(mut m1), Self::Matches(m2)) => {
+                for (k, v) in m2 {
+                    if m1.get(&k).is_none_or(|v2| v == *v2) {
+                        m1.insert(k, v);
+                    } else {
+                        return Self::NotEqual;
+                    }
+                }
+                Self::Matches(m1)
+            }
+            _ => Self::Empty,
+        }
+    }
+}
+
+impl Type {
+    pub fn get_generic_matches(&self, other: &Type) -> GenericMatches {
+        match (self, other) {
+            (Self::String, Self::String)
+            | (Self::Number, Self::Number)
+            | (Self::Boolean, Self::Boolean) => GenericMatches::Empty,
+
+            (Self::Unit, Self::Unit | Self::Table(_) | Self::List(_) | Self::Map(_)) => {
+                GenericMatches::Empty
+            }
+            (Self::Table(m1), Self::Table(m2)) => {
+                m1.iter().fold(GenericMatches::Empty, |a, (k, t)| {
+                    if !m2.contains_key(k) {
+                        GenericMatches::NotEqual
+                    } else {
+                        a + t.get_generic_matches(&m2[k])
+                    }
+                })
+            }
+
+            (
+                Self::Fn {
+                    parameters: p1,
+                    return_type: r1,
+                },
+                Self::Fn {
+                    parameters: p2,
+                    return_type: r2,
+                },
+            ) => {
+                if p1.len() != p2.len() {
+                    GenericMatches::NotEqual
+                } else {
+                    p1.iter()
+                        .zip(p2)
+                        .fold(GenericMatches::Empty, |a, (t1, t2)| {
+                            a + t1.get_generic_matches(t2)
+                        })
+                        + r1.get_generic_matches(r2)
+                }
+            }
+
+            (Self::Ref(t1), Self::Ref(t2)) => t1.get_generic_matches(t2),
+
+            (Self::List(a), Self::List(b)) => a.get_generic_matches(b),
+            (Self::List(t), Self::Table(map)) => {
+                map.iter().fold(GenericMatches::Empty, |a, (k, v)| {
+                    a + if matches!(k, Key::Index(_)) {
+                        t.get_generic_matches(v)
+                    } else {
+                        GenericMatches::NotEqual
+                    }
+                })
+            }
+            (Self::Map(a), Self::Map(b)) => a.get_generic_matches(b),
+            (Self::Map(t), Self::Table(map)) => {
+                map.iter().fold(GenericMatches::Empty, |a, (_, v)| {
+                    a + t.get_generic_matches(v)
+                })
+            }
+
+            (Self::Union(a), Self::Union(b)) => b.iter().fold(GenericMatches::Empty, |ac, b| {
+                ac + if a.iter().any(|a| a.matches(b)) {
+                    GenericMatches::Empty
+                } else {
+                    for a in a {
+                        let gm = a.get_generic_matches(b);
+                        if gm != GenericMatches::NotEqual {
+                            return gm;
+                        }
+                    }
+                    GenericMatches::NotEqual
+                }
+            }),
+            (Self::Union(a), b) => {
+                if a.iter().any(|a| a.matches(b)) {
+                    GenericMatches::Empty
+                } else {
+                    for a in a {
+                        let gm = a.get_generic_matches(b);
+                        if gm != GenericMatches::NotEqual {
+                            return gm;
+                        }
+                    }
+                    GenericMatches::NotEqual
+                }
+            }
+
+            (Self::Generic { id, .. }, b) => {
+                GenericMatches::Matches(HashMap::from([(*id, b.clone())]))
+            }
+
+            _ => GenericMatches::NotEqual,
         }
     }
 }
@@ -381,3 +566,15 @@ pub enum Primitive {
     String(String),
 }
 impl_into_type!(Primitive => Type::Union(vec![Type::String, Type::Number, Type::Boolean]));
+
+pub struct GenericType<const ID: usize> {
+    pub(crate) value: Value,
+}
+impl<const ID: usize> IntoType for GenericType<ID> {
+    fn into_type() -> Type {
+        Type::Generic {
+            id: ID,
+            name: String::from(b"TUVWXYZABCDEFGHIJKLMNOPQRS"[ID] as char),
+        }
+    }
+}

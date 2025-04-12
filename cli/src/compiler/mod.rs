@@ -1,9 +1,5 @@
 use hashbrown::HashMap;
-use pbscript_lib::{
-    error::Result,
-    instruction::InstructionSet,
-    types::{partial::PartialType, Type},
-};
+use pbscript_lib::{error::Result, instruction::InstructionSet, types::Type};
 use statement::compile_statement;
 
 use crate::{parser::program::Program, prelude_map::VarMap};
@@ -22,23 +18,26 @@ pub struct Variable {
 }
 
 pub struct TypeDef {
-    pub partial: PartialType,
+    pub value: Type,
     pub generics: usize,
 }
 impl TypeDef {
     pub fn build(&self, generics: Vec<Type>) -> Type {
-        self.partial.clone().complete(&generics)
+        self.value.clone().complete(&generics)
     }
 }
 
+#[derive(Default)]
 struct Scope<'a> {
     variables: HashMap<String, Variable>,
     aliases: Option<HashMap<String, (usize, usize)>>,
     types: HashMap<String, TypeDef>,
+    generics: HashMap<String, usize>,
 
     instructions: InstructionSet,
     parent: Option<&'a dyn VarMap>,
 }
+
 impl VarMap for Scope<'_> {
     fn get_var(&self, name: &str) -> Option<(&Variable, usize)> {
         if let Some(var) = self.variables.get(name) {
@@ -56,15 +55,21 @@ impl VarMap for Scope<'_> {
             self.parent.and_then(|p| p.get_type(name))
         }
     }
+    fn get_generic(&self, name: &str) -> Option<usize> {
+        self.generics
+            .get(name)
+            .copied()
+            .or_else(|| self.parent.map_or(None, |p| p.get_generic(name)))
+    }
+    fn get_generic_count(&self) -> usize {
+        self.generics.len() + self.parent.map_or(0, |p| p.get_generic_count())
+    }
 }
 
 pub fn compile(tree: Program, parent: Option<&dyn VarMap>) -> Result<InstructionSet> {
     let mut scope = Scope {
-        variables: HashMap::new(),
-        aliases: None,
-        types: HashMap::new(),
-        instructions: InstructionSet::default(),
         parent,
+        ..Default::default()
     };
 
     for statement in tree.body {

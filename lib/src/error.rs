@@ -62,7 +62,7 @@ impl Error {
             line = line.replace("\t", "    ");
 
             println!(
-                "\x1b[2m{pad}{ln} |\x1b[22m  {line}\x1b[0m",
+                "\x1b[2m{pad}{ln} │\x1b[22m  {line}\x1b[0m",
                 pad = " ".repeat(ln_pad)
             );
         }

@@ -54,15 +54,14 @@ pub fn compile_expression(
             let (expr_ty, body, tail) = compile_fn(body, &parameters, scope)?;
 
             if !return_ty.matches(&expr_ty) {
-                return Err(
-                    Error::new(
-                        body_span,
-                        format!(
-                            "This expression does not match the function signature. Expected a return type of {}.", 
-                            return_ty.simple_name()
-                        )
-                    )
-                );
+                return Err(Error::new(
+                    body_span,
+                    format!(
+                        "This expression does not match the function signature.\n\
+                            Expected: {return_ty}\n\
+                            Got: {expr_ty}",
+                    ),
+                ));
             }
 
             let parameters = parameters
@@ -163,7 +162,11 @@ pub fn compile_expression(
             ))
         }
         Expression::DynAccess(_, _) => todo!(),
-        Expression::Call { value, args } => {
+        Expression::Call {
+            value,
+            generics,
+            args,
+        } => {
             let fn_span = value.span;
             let (ty, rep) = compile_expression(value.span.with(*value.data), scope)?;
 
@@ -304,11 +307,8 @@ pub fn compile_expression(
                 prev_cases.append(&mut flat);
 
                 let mut scope = Scope {
-                    variables: HashMap::new(),
-                    aliases: None,
-                    types: HashMap::new(),
-                    instructions: InstructionSet::default(),
                     parent: Some(scope),
+                    ..Default::default()
                 };
 
                 if let Pattern::Identifier { name, type_hint: _ } = &pat.data {
@@ -535,11 +535,8 @@ fn compile_block(
     scope: &mut Scope,
 ) -> Result<(Type, InstructionSet, Option<Reporter>)> {
     let mut scope = Scope {
-        variables: HashMap::new(),
-        aliases: None,
-        types: HashMap::new(),
-        instructions: InstructionSet::default(),
         parent: Some(scope),
+        ..Default::default()
     };
 
     for statement in block.body {

@@ -2,10 +2,7 @@ use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use hashbrown::HashMap;
 
-use crate::{
-    types::{partial::PartialType, Type},
-    value::Value,
-};
+use crate::{types::Type, value::Value};
 
 pub mod builder;
 
@@ -25,7 +22,7 @@ pub struct ExternalConstant {
 
 #[derive(Debug, Clone)]
 pub struct ExternalTypeAlias {
-    pub partial: PartialType,
+    pub value: Type,
     pub generics: usize,
 }
 

@@ -9,15 +9,6 @@ use std::{
     str::{Chars, Lines},
 };
 
-pub struct TokenStream<'a> {
-    lines: Lines<'a>,
-    current_line: Peekable<Chars<'a>>,
-    done: bool,
-
-    pos: Pos,
-    next: VecDeque<Option<<Self as Iterator>::Item>>,
-}
-
 macro_rules! operator {
     ($token: ident, $span: expr) => {
         Some(Ok(Span::char($span).with(Token::$token)))
@@ -39,6 +30,15 @@ macro_rules! pat_ident {
     () => {
         'A'..='Z' | 'a'..='z' | '_' | '0'..='9'
     };
+}
+
+pub struct TokenStream<'a> {
+    lines: Lines<'a>,
+    current_line: Peekable<Chars<'a>>,
+    done: bool,
+
+    pos: Pos,
+    next: VecDeque<Option<<Self as Iterator>::Item>>,
 }
 
 impl TokenStream<'_> {

@@ -1,21 +1,24 @@
 use super::{
     expression::{compile_expression, get_key, is_mut},
-    ty::{compile_ty, compile_ty_generics},
+    ty::compile_ty,
     Scope, TypeDef, VarMap, Variable,
 };
-use crate::parser::{
-    block::Block,
-    expression::Expression,
-    pattern::Pattern,
-    statement::{AssignmentOperator, Statement},
-    Parameter,
+use crate::{
+    parser::{
+        block::Block,
+        expression::Expression,
+        pattern::Pattern,
+        statement::{AssignmentOperator, Statement},
+        Parameter,
+    },
+    std_library::iter::PbIter,
 };
 use hashbrown::HashMap;
 use pbscript_lib::{
     error::{Error, Result},
     instruction::{ArithmaticOperation, Instruction, InstructionSet, Reporter},
     span::{Chunk, Span},
-    types::Type,
+    types::{GenericMatches, GenericType, IntoType, Type},
     value::Key,
 };
 
@@ -78,15 +81,27 @@ Consider using a match statement:
         Statement::DefFunction {
             mutable,
             name,
+            generics,
             parameters,
             return_type,
             body,
         } => {
+            let mut generic_scope = Scope {
+                generics: generics
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, g)| (g.data, i))
+                    .collect(),
+                parent: Some(scope),
+                ..Default::default()
+            };
+
             let idx = scope.variables.len();
-            let return_ty =
-                Box::new(return_type.map_or(Ok(Type::Unit), |rt| compile_ty(rt, scope))?);
+            let return_ty = Box::new(
+                return_type.map_or(Ok(Type::Unit), |rt| compile_ty(rt, &mut generic_scope))?,
+            );
             let body_span = body.span;
-            let (expr_ty, instructions, tail) = compile_fn(body, &parameters, scope)?;
+            let (expr_ty, instructions, tail) = compile_fn(body, &parameters, &mut generic_scope)?;
 
             if !return_ty.matches(&expr_ty) {
                 return Err(
@@ -100,7 +115,7 @@ Consider using a match statement:
             }
             let parameters = parameters
                 .into_iter()
-                .map(|p| compile_ty(p.data.type_hint, scope))
+                .map(|p| compile_ty(p.data.type_hint, &mut generic_scope))
                 .collect::<Result<Vec<_>>>()?;
 
             let ty = Type::Fn {
@@ -136,16 +151,23 @@ Consider using a match statement:
             generics,
             value,
         } => {
+            let id0 = scope.get_generic_count();
+            let mut generics_scope = Scope {
+                generics: generics
+                    .iter()
+                    .enumerate()
+                    .map(|(id, name)| (name.data.clone(), id + id0))
+                    .collect(),
+                parent: Some(scope),
+                ..Default::default()
+            };
+
             let generics_count = generics.len();
-            let partial = compile_ty_generics(
-                value,
-                scope,
-                &generics.into_iter().map(|s| s.data).collect(),
-            )?;
+            let partial = compile_ty(value, &mut generics_scope)?;
             scope.types.insert(
                 name.data,
                 TypeDef {
-                    partial,
+                    value: partial,
                     generics: generics_count,
                 },
             );
@@ -344,11 +366,8 @@ Consider using a match statement:
             }
 
             let mut body_scope = Scope {
-                variables: HashMap::new(),
-                aliases: None,
-                types: HashMap::new(),
-                instructions: InstructionSet::default(),
                 parent: Some(scope),
+                ..Default::default()
             };
             for statement in body {
                 compile_statement(statement, &mut body_scope)?;
@@ -369,37 +388,24 @@ Consider using a match statement:
             let (iter_ty, iter) = compile_expression(iter, scope)?;
 
             let item_ty = match iter_ty {
-                Type::Fn {
-                    ref parameters,
-                    ref return_type,
-                } if parameters.is_empty() => {
-                    macro_rules! incorrect_type {
-                        () => {
-                            return Err(Error::new(
-                                iter_span,
-                                format!(
-                                    "This value is not an iterator.\n\
-                                    Expected type: fn() -> (T | [])\n\
-                                    Found: {iter_ty}"
-                                ),
-                            ));
-                        };
+                Type::Table(map) if map.contains_key("next") => {
+                    let iter_ty = Type::Table(map);
+                    let expected = PbIter::<GenericType<0>>::into_type();
+                    if let GenericMatches::Matches(mut matches) =
+                        expected.get_generic_matches(&iter_ty)
+                    {
+                        matches.remove(&0).unwrap()
+                    } else {
+                        return Err(Error::new(
+                            iter_span,
+                            format!(
+                                "This value is not an iterator.\n\
+                                For a table to be an iterator, it needs a `next` method.\n\
+                                Expression type: {iter_ty}\n\
+                                Expected: {expected}"
+                            ),
+                        ));
                     }
-                    let Type::Union(variants) = &**return_type else {
-                        incorrect_type!();
-                    };
-
-                    if variants.len() != 2 || !variants.contains(&Type::Unit) {
-                        incorrect_type!();
-                    }
-
-                    // Check that both 2 variants, and at least one is unit
-                    #[allow(clippy::unwrap_used)]
-                    variants
-                        .iter()
-                        .find(|ty| ty != &&Type::Unit)
-                        .unwrap()
-                        .clone()
                 }
                 Type::List(ty) => *ty,
                 Type::Map(ty) => Type::Table(HashMap::from([
@@ -433,20 +439,20 @@ Consider using a match statement:
                 up: 0,
                 idx,
                 value: Reporter::Call(
-                    Box::new(Reporter::Get {
-                        up: 0,
-                        idx: iter_idx,
+                    Box::new(Reporter::Property {
+                        tbl: Box::new(Reporter::Get {
+                            up: 0,
+                            idx: iter_idx,
+                        }),
+                        key: Key::Named(String::from("next")),
                     }),
                     Vec::new(),
                 ),
             });
 
             let mut body_scope = Scope {
-                variables: HashMap::new(),
-                aliases: None,
-                types: HashMap::new(),
-                instructions: InstructionSet::default(),
                 parent: Some(scope),
+                ..Default::default()
             };
             compile_pattern(
                 item_ty.clone(),
@@ -466,9 +472,12 @@ Consider using a match statement:
                 up: 1,
                 idx,
                 value: Reporter::Call(
-                    Box::new(Reporter::Get {
-                        up: 1,
-                        idx: iter_idx,
+                    Box::new(Reporter::Property {
+                        tbl: Box::new(Reporter::Get {
+                            up: 1,
+                            idx: iter_idx,
+                        }),
+                        key: Key::Named(String::from("next")),
                     }),
                     Vec::new(),
                 ),
@@ -597,11 +606,9 @@ pub fn compile_fn(
                 ))
             })
             .collect::<Result<_>>()?,
-        aliases: None,
-        types: HashMap::new(),
-        instructions: InstructionSet::default(),
 
         parent: Some(parent),
+        ..Default::default()
     };
 
     for statement in body.data.body {

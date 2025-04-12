@@ -1,14 +1,20 @@
-use std.process.[with exit];
+type Peekable<T> = [
+	peek: fn() -> ref Option<T>,
+	next: fn() -> Option<T>,
+];
 
-fn unwrap:<T>(val: Option<T>) -> T
-	= match val {
-		some: T = some;
-		[] = {
-			println("called unwrap on none.");
-			exit();
-		};
-	};
-
-let my_value: num | [] = 8;
-unwrap(my_value); // implicitly T = num
-unwrap:<str>([]);
+fn peekable:<T>(iterator: Iter<T>) -> Peekable<T> = {
+	mut queue: Option<T> = [];
+	[
+		next = iterator.next(),
+		peek = fn() -> ref Option<T> = {
+			match ref queue {
+				some: ref T = some;
+				none: ref [] = {
+					queue = iterator.next();
+					ref queue
+				};
+			}
+		},
+	]
+};

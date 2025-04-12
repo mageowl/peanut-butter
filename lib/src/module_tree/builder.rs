@@ -1,7 +1,3 @@
-use crate::{
-    types::partial::PartialType,
-    value::{function::FFIWrapper, Call},
-};
 use std::{cell::RefCell, rc::Rc};
 
 use hashbrown::HashMap;
@@ -9,7 +5,10 @@ use hashbrown::HashMap;
 use super::{ExternalConstant, ExternalModule, ExternalTypeAlias, ExternalVariable};
 use crate::{
     types::Type,
-    value::{function::FFIFunction, Value},
+    value::{
+        function::{FFIFunction, FFIWrapper},
+        Call, Value,
+    },
 };
 
 pub struct ModuleBuilder {
@@ -64,13 +63,13 @@ impl ModuleBuilder {
             panic!("A constant of name {name} has already been declared in this module.");
         }
     }
-    pub fn add_type(mut self, name: &str, partial: PartialType) -> Self {
+    pub fn add_type(mut self, name: &str, value: Type) -> Self {
         if !self.types.contains_key(name) {
             self.types.insert(
                 name.to_string(),
                 ExternalTypeAlias {
-                    generics: partial.get_max_generics(),
-                    partial,
+                    generics: value.get_max_generics(),
+                    value,
                 },
             );
             self

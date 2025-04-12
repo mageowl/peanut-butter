@@ -11,6 +11,8 @@ use crate::{
 pub trait VarMap {
     fn get_var(&self, name: &str) -> Option<(&Variable, usize)>;
     fn get_type(&self, name: &str) -> Option<&TypeDef>;
+    fn get_generic(&self, name: &str) -> Option<usize>;
+    fn get_generic_count(&self) -> usize;
 }
 
 pub struct PreludeMap {
@@ -78,15 +80,23 @@ impl From<&ExternalModule> for PreludeMap {
             types: module
                 .types
                 .iter()
-                .map(|(k, ExternalTypeAlias { partial, generics })| {
-                    (
-                        k.clone(),
-                        TypeDef {
-                            partial: partial.clone(),
-                            generics: *generics,
+                .map(
+                    |(
+                        k,
+                        ExternalTypeAlias {
+                            value: partial,
+                            generics,
                         },
-                    )
-                })
+                    )| {
+                        (
+                            k.clone(),
+                            TypeDef {
+                                value: partial.clone(),
+                                generics: *generics,
+                            },
+                        )
+                    },
+                )
                 .collect(),
         }
     }
@@ -99,5 +109,12 @@ impl VarMap for PreludeMap {
 
     fn get_type(&self, name: &str) -> Option<&TypeDef> {
         self.types.get(name)
+    }
+
+    fn get_generic(&self, _name: &str) -> Option<usize> {
+        None
+    }
+    fn get_generic_count(&self) -> usize {
+        0
     }
 }
