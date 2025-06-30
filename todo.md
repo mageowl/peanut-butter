@@ -1,0 +1,34 @@
+# syntax to implement
+
+- [ ] variables
+- [ ] constants
+- [ ] functions
+- [ ] compile time
+	- [ ] cache functions
+- [ ] types
+	- [ ] enum
+	- [ ] struct
+	- [ ] associated functions
+	- [ ] pointer
+	- [ ] type type
+	- [ ] boolean
+	- [ ] string
+	- [ ] number
+	- how are they represented at runtime?
+		- uid?
+- [ ] control flow
+	- [ ] if
+	- [ ] match
+	- [ ] while
+	- [ ] for
+	- [ ] loop
+	- [ ] return
+	- [ ] break
+	- [ ] leak??? (dont drop variable)
+- [ ] arithmatic
+- [ ] syscalls
+- [ ] builtins
+	- [ ] pointer type
+	- [ ] import
+- [ ] import and export
+- [ ] reflection
