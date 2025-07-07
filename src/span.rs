@@ -67,10 +67,22 @@ impl<T> Chunk<T> {
     pub fn as_box(self) -> Chunk<Box<T>> {
         self.map(Box::new)
     }
+    pub fn as_ref(&self) -> Chunk<&T> {
+        Chunk {
+            data: &self.data,
+            span: self.span,
+        }
+    }
 }
 
 impl<T: Sized> Chunk<Box<T>> {
     pub fn unbox(self) -> Chunk<T> {
         self.map(|a| *a)
+    }
+    pub fn as_reborrow(&self) -> Chunk<&T> {
+        Chunk {
+            data: &self.data,
+            span: self.span,
+        }
     }
 }

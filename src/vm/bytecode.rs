@@ -53,12 +53,12 @@ pub enum OpCode {
     F64Multiply = 0x2F,
     F64Divide = 0x30,
 
-    Invalid,
+    Invalid = 0xFF,
 }
 
 impl From<u8> for OpCode {
     fn from(value: u8) -> Self {
-        if value > 35 {
+        if value > 0x30 {
             Self::Invalid
         } else {
             // SAFETY: values bigger than the maximum are handled above

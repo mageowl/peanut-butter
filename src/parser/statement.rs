@@ -14,7 +14,7 @@ use super::{
 pub enum Statement<'a> {
     DefVariable {
         name: Chunk<&'a str>,
-        var_type: Option<Chunk<Expression<'a>>>,
+        val_type: Option<Chunk<Expression<'a>>>,
         value: Option<Chunk<Expression<'a>>>,
     },
     DefConst(ConstantDefinition<'a>),
@@ -132,7 +132,7 @@ impl<'a> Statement<'a> {
             },
             Self::DefVariable {
                 name,
-                var_type,
+                val_type: var_type,
                 value,
             },
         ))
@@ -373,9 +373,9 @@ impl<'a> Parse<'a> for Parameter<'a> {
 
 #[derive(Debug)]
 pub struct ConstantDefinition<'a> {
-    name: Chunk<&'a str>,
-    var_type: Option<Chunk<Expression<'a>>>,
-    value: Chunk<Expression<'a>>,
+    pub name: Chunk<&'a str>,
+    pub val_type: Option<Chunk<Expression<'a>>>,
+    pub value: Chunk<Expression<'a>>,
 }
 
 impl<'a> Parse<'a> for ConstantDefinition<'a> {
@@ -402,7 +402,7 @@ impl<'a> Parse<'a> for ConstantDefinition<'a> {
             },
             Self {
                 name,
-                var_type,
+                val_type: var_type,
                 value,
             },
         ))

@@ -26,23 +26,61 @@ impl<const SIZE: usize> Stack<SIZE> {
         self.data[self.top] = x;
         self.top += 1;
     }
+    fn push_u16(&mut self, x: u16) {
+        self.data[self.top..self.top + 2].copy_from_slice(&x.to_le_bytes());
+        self.top += 2;
+    }
+    fn push_u32(&mut self, x: u32) {
+        self.data[self.top..self.top + 4].copy_from_slice(&x.to_le_bytes());
+        self.top += 4;
+    }
+    fn push_u64(&mut self, x: u64) {
+        self.data[self.top..self.top + 8].copy_from_slice(&x.to_le_bytes());
+        self.top += 8;
+    }
 
     fn pop_u8(&mut self) -> u8 {
         self.top -= 1;
         return self.data[self.top];
     }
+    fn pop_u16(&mut self) -> u16 {
+        self.top -= 2;
+        return u16::from_le_bytes([self.data[self.top + 1], self.data[self.top + 2]]);
+    }
+    fn pop_u32(&mut self) -> u32 {
+        self.top -= 2;
+        return u32::from_le_bytes([
+            self.data[self.top + 1],
+            self.data[self.top + 2],
+            self.data[self.top + 3],
+            self.data[self.top + 4],
+        ]);
+    }
+    fn pop_u64(&mut self) -> u64 {
+        self.top -= 8;
+        return u64::from_le_bytes([
+            self.data[self.top + 1],
+            self.data[self.top + 2],
+            self.data[self.top + 3],
+            self.data[self.top + 4],
+            self.data[self.top + 5],
+            self.data[self.top + 6],
+            self.data[self.top + 7],
+            self.data[self.top + 8],
+        ]);
+    }
 }
 
-pub struct VirtualMachine<const STACK_SIZE: usize, const CONST_SIZE: usize> {
+pub struct VirtualMachine<const STACK_SIZE: usize> {
     instructions: Vec<u8>,
     ip: usize,
-    constants: [u8; CONST_SIZE],
+    constants: Vec<u8>,
     stack: Stack<STACK_SIZE>,
     done: bool,
 }
 
-impl<const STACK_SIZE: usize, const CONST_SIZE: usize> VirtualMachine<STACK_SIZE, CONST_SIZE> {
-    pub fn new(instructions: Vec<u8>, constants: [u8; CONST_SIZE]) -> Self {
+impl<const STACK_SIZE: usize> VirtualMachine<STACK_SIZE> {
+    pub fn new(instructions: Vec<u8>, constants: Vec<u8>) -> Self {
         assert!(instructions.len() > 0);
         Self {
             instructions,
@@ -87,13 +125,13 @@ impl<const STACK_SIZE: usize, const CONST_SIZE: usize> VirtualMachine<STACK_SIZE
                 self.done = true; // TODO: functions
             }
             OpCode::Constant => {
-                let const_idx = self.read_u16() as usize;
+                let const_idx = self.read_u8() as usize;
                 let size = self.read_u16() as usize;
                 self.stack
                     .push_bytes(&self.constants[const_idx..const_idx + size]);
             }
             OpCode::LongConstant => {
-                let const_idx = self.read_u32() as usize;
+                let const_idx = self.read_u16() as usize;
                 let size = self.read_u16() as usize;
                 self.stack
                     .push_bytes(&self.constants[const_idx..const_idx + size]);

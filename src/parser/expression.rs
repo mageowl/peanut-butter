@@ -484,6 +484,12 @@ impl<'a> Expression<'a> {
                 else {
                     unreachable!()
                 };
+
+                if let Some(Token::ParenOpen) = source.peek_token() {
+                    let end = parse_token(source, Token::ParenClose)?.end;
+                    return Ok(Chunk::new(Span { start, end }, Self::Tuple(Vec::new())));
+                }
+
                 let expr = Self::parse(source)?;
                 if let Some(Token::Comma) = source.peek_token() {
                     source.next();
