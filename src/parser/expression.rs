@@ -1,4 +1,5 @@
 use crate::{
+    compiler::comp_type::NumberType,
     error::{Error, Result},
     lexer::{TokenStream, token::Token},
     span::{Chunk, Span},
@@ -29,10 +30,12 @@ pub enum Expression<'a> {
     Int {
         slice: &'a str,
         negative: bool,
+        type_spec: Option<Chunk<NumberType>>,
     },
     Float {
         slice: &'a str,
         negative: bool,
+        type_spec: Option<Chunk<NumberType>>,
     },
     //Array() TODO
     Boolean(bool),
@@ -301,12 +304,11 @@ impl<'a> Expression<'a> {
 
         loop {
             match source.peek_token() {
-                Some(Token::Period) => {
-                    let dot = parse_token(source, Token::Period)?;
-                    if !trailing_delimeter {
-                        return Err(Error::new("Expected a comma.", dot));
-                    }
+                Some(Token::Ident(_)) => {
                     let name = <&str>::parse(source)?;
+                    if !trailing_delimeter {
+                        return Err(Error::new("Expected a comma.", name.span));
+                    }
 
                     parse_token(source, Token::Equals)?;
                     let value = Self::parse(source)?;
@@ -429,23 +431,57 @@ impl<'a> Expression<'a> {
             }
             Some(Token::Int { .. }) => {
                 let Some(Ok(Chunk {
-                    span,
+                    mut span,
                     data: Token::Int { slice, negative },
                 })) = source.next()
                 else {
                     unreachable!()
                 };
-                Chunk::new(span, Self::Int { slice, negative })
+
+                let type_spec = match source.peek_token() {
+                    Some(Token::Ident(
+                        "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64",
+                    )) => Some(NumberType::parse(source)?),
+                    _ => None,
+                };
+                if let Some(num) = &type_spec {
+                    span.end = num.span.end;
+                }
+
+                Chunk::new(
+                    span,
+                    Self::Int {
+                        slice,
+                        negative,
+                        type_spec,
+                    },
+                )
             }
             Some(Token::Float { .. }) => {
                 let Some(Ok(Chunk {
-                    span,
+                    mut span,
                     data: Token::Float { slice, negative },
                 })) = source.next()
                 else {
                     unreachable!()
                 };
-                Chunk::new(span, Self::Float { slice, negative })
+
+                let type_spec = match source.peek_token() {
+                    Some(Token::Ident("f32" | "f64")) => Some(NumberType::parse(source)?),
+                    _ => None,
+                };
+                if let Some(num) = &type_spec {
+                    span.end = num.span.end;
+                }
+
+                Chunk::new(
+                    span,
+                    Self::Float {
+                        slice,
+                        negative,
+                        type_spec,
+                    },
+                )
             }
             Some(Token::Boolean(_)) => {
                 let Some(Ok(Chunk {
@@ -485,7 +521,7 @@ impl<'a> Expression<'a> {
                     unreachable!()
                 };
 
-                if let Some(Token::ParenOpen) = source.peek_token() {
+                if let Some(Token::ParenClose) = source.peek_token() {
                     let end = parse_token(source, Token::ParenClose)?.end;
                     return Ok(Chunk::new(Span { start, end }, Self::Tuple(Vec::new())));
                 }
@@ -783,5 +819,31 @@ impl<'a> Parse<'a> for Expression<'a> {
         }
 
         Ok(expr)
+    }
+}
+
+impl<'a> Parse<'a> for NumberType {
+    type Context = ();
+    fn parse_context(source: &mut TokenStream<'a>, ctx: Self::Context) -> Result<Chunk<Self>> {
+        let str = <&str>::parse(source)?;
+        let val = match str.data {
+            "u8" => Self::U8,
+            "u16" => Self::U16,
+            "u32" => Self::U32,
+            "u64" => Self::U64,
+            "i8" => Self::I8,
+            "i16" => Self::I16,
+            "i32" => Self::I32,
+            "i64" => Self::I64,
+            "f32" => Self::F32,
+            "f64" => Self::F64,
+            _ => {
+                return Err(Error::new(
+                    format!("Expected a number type, but instead got {}.", str.data),
+                    str.span,
+                ));
+            }
+        };
+        Ok(Chunk::new(str.span, val))
     }
 }

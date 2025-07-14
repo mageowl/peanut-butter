@@ -281,11 +281,11 @@ impl<'a> Parse<'a> for Block<'a> {
 
 #[derive(Debug)]
 pub struct FunctionDefinition<'a> {
-    name: Chunk<&'a str>,
-    self_parameter: bool,
-    parameters: Vec<Chunk<Parameter<'a>>>,
-    return_type: Option<Chunk<Expression<'a>>>,
-    body: Chunk<Block<'a>>,
+    pub name: Chunk<&'a str>,
+    pub self_parameter: bool,
+    pub parameters: Vec<Chunk<Parameter<'a>>>,
+    pub return_type: Option<Chunk<Expression<'a>>>,
+    pub body: Chunk<Block<'a>>,
 }
 
 impl<'a> Parse<'a> for FunctionDefinition<'a> {
@@ -353,7 +353,10 @@ impl<'a> Parse<'a> for FunctionDefinition<'a> {
 }
 
 #[derive(Debug)]
-pub struct Parameter<'a>(Chunk<&'a str>, Chunk<Expression<'a>>);
+pub struct Parameter<'a> {
+    pub name: Chunk<&'a str>,
+    pub ty: Chunk<Expression<'a>>,
+}
 
 impl<'a> Parse<'a> for Parameter<'a> {
     type Context = ();
@@ -366,7 +369,7 @@ impl<'a> Parse<'a> for Parameter<'a> {
                 start: name.span.start,
                 end: name.span.end,
             },
-            Self(name, ty),
+            Self { name, ty },
         ))
     }
 }

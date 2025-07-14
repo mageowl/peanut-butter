@@ -19,7 +19,6 @@ impl Error {
     }
 
     pub fn display(&self, src: &str) {
-        dbg!(self);
         println!("\x1b[1;31merror\x1b[0;1m: {}\x1b[22m", self.message);
         let lines = src
             .lines()
@@ -57,4 +56,4 @@ impl Error {
     }
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;

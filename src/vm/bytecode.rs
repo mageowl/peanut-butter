@@ -2,6 +2,7 @@ use std::mem;
 
 #[allow(unused)]
 #[repr(u8)]
+#[derive(Debug)]
 pub enum OpCode {
     Pop = 0x00,
     ReturnVoid = 0x01,
@@ -52,13 +53,22 @@ pub enum OpCode {
     F64Subtract = 0x2E,
     F64Multiply = 0x2F,
     F64Divide = 0x30,
+    Call = 0x31,
+    DynCall = 0x32,
+    SysCall = 0x33,
+    PushZeroed = 0x34,
+    Property = 0x35,
+    BooleanAnd = 0x36,
+    BooleanOr = 0x37,
+    Equal = 0x38,
+    NotEqual = 0x39,
 
     Invalid = 0xFF,
 }
 
 impl From<u8> for OpCode {
     fn from(value: u8) -> Self {
-        if value > 0x30 {
+        if value > 0x35 {
             Self::Invalid
         } else {
             // SAFETY: values bigger than the maximum are handled above

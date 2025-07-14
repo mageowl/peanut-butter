@@ -45,8 +45,8 @@
 	};
 
 	var my_point = Point {
-		.x = 4,
-		.y = 10,
+		x = 4,
+		y = 10,
 	};
 
 	print("(4, 10) ="my_point.to_str());

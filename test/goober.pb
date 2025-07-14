@@ -1,2 +1,2 @@
-var my_var: u8 = 42;
-
+fn add_one(x: u8) -> u8
+	= x + 1;

@@ -1,9 +1,10 @@
-use std::fs;
+use std::{fs, process};
 
 use compiler::Compiler;
+use error::Error;
 use lexer::TokenStream;
 use parser::{Parse, statement::Block};
-use vm::{VirtualMachine, bytecode::OpCode};
+use vm::VirtualMachine;
 
 pub mod compiler;
 mod error;
@@ -14,34 +15,34 @@ pub mod vm;
 
 #[cfg(feature = "16bit")]
 #[expect(non_camel_case_types)]
-pub type uarch = u16;
+mod arch {
+    pub type uarch = u16;
+    pub type iarch = i16;
+}
 #[cfg(not(feature = "16bit"))]
 #[expect(non_camel_case_types)]
-pub type uarch = u64;
+mod arch {
+    pub type uarch = u64;
+    pub type iarch = i64;
+}
 
 fn main() {
-    let file = fs::read_to_string("test/all.pb").unwrap();
+    let file = fs::read_to_string("test/goober.pb").unwrap();
     let mut tokens = TokenStream::from(file.as_str());
-    let ast = Block::parse(&mut tokens);
+    let ast = handle_error(Block::parse(&mut tokens), &file);
 
-    // match ast {
-    //     Ok(ast) => {
-    //         dbg!(ast);
-    //     }
-    //     Err(e) => e.display(&file),
-    // }
+    let mut compiler = Compiler::new();
+    handle_error(compiler.compile_program(ast), &file);
+    let mut vm: VirtualMachine = compiler.create_vm();
+    vm.finish();
+}
 
-    // let constants: [u8; 2] = [1, 2];
-    // #[rustfmt::skip]
-    // let instructions = vec![
-    //                          // index, size
-    //     OpCode::Constant as u8, 0x00,  0x01, 0x00,
-    //     OpCode::Constant as u8, 0x01,  0x01, 0x00,
-    //     OpCode::U8Add as u8,
-    //     OpCode::Pop as u8,
-    //     OpCode::ReturnVoid as u8,
-    // ];
-
-    // let mut vm: VirtualMachine<256, 2> = VirtualMachine::new(instructions, constants);
-    // vm.finish();
+fn handle_error<T>(res: Result<T, Error>, src: &str) -> T {
+    match res {
+        Ok(t) => t,
+        Err(e) => {
+            e.display(src);
+            process::exit(1)
+        }
+    }
 }

@@ -1,6 +1,10 @@
-use std::{cell::OnceCell, collections::HashMap, mem, sync::Arc};
+use std::{cell::OnceCell, collections::HashMap, sync::Arc};
 
-#[derive(PartialEq, Eq)]
+use crate::arch::uarch;
+
+use super::Constant;
+
+#[derive(PartialEq, Eq, Clone)]
 pub enum MaybeUnknownType<'a> {
     UnknownInteger {
         min_bits: u8,
@@ -78,6 +82,7 @@ impl<'a> MaybeUnknownType<'a> {
             }
 
             (Self::Known(a), b) => a == b,
+            (Self::Infer, _) => true,
             _ => false,
         }
     }
@@ -107,8 +112,9 @@ impl<'a> MaybeUnknownType<'a> {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 pub enum CompType<'a> {
+    StringSlice,
     Number(NumberType),
     Boolean,
     Pointer {
@@ -120,22 +126,22 @@ pub enum CompType<'a> {
         item_type: Box<CompType<'a>>,
     },
     Array {
-        size: usize,
+        size: uarch,
         item_type: Box<CompType<'a>>,
     },
     Struct(StructPointer<'a>),
     Enum(EnumPointer<'a>),
     Tuple(Vec<CompType<'a>>),
     Function {
-        native: bool,
-        args: Vec<Argument<'a>>,
-        returns: Box<CompType<'a>>,
+        parameters: Vec<Parameter<'a>>,
+        return_type: Box<CompType<'a>>,
     },
     Type,
 }
 impl CompType<'_> {
     pub fn name(&self) -> &'static str {
         match self {
+            CompType::StringSlice => "a constant string",
             CompType::Number(number_type) => number_type.name(),
             CompType::Boolean => "a boolean",
             CompType::Pointer { is_const, .. } => {
@@ -160,9 +166,25 @@ impl CompType<'_> {
             CompType::Type => "a type",
         }
     }
+    pub fn size(&self) -> uarch {
+        let uarch_size = uarch::BITS as uarch / 8;
+        match self {
+            CompType::StringSlice => uarch_size * 2, // length and pointer
+            CompType::Number(number_type) => number_type.bits() as uarch / 8,
+            CompType::Boolean => 1,
+            CompType::Pointer { .. } => uarch_size,
+            CompType::UnsizedArray { .. } => uarch_size * 2, // length and pointer
+            CompType::Array { size, item_type } => item_type.size() * size,
+            CompType::Struct(struct_pointer) => struct_pointer.0.size(),
+            CompType::Enum(enum_pointer) => enum_pointer.0.size(),
+            CompType::Tuple(comp_types) => comp_types.iter().map(|c| c.size()).sum(),
+            CompType::Function { .. } => uarch_size,
+            CompType::Type => uarch_size,
+        }
+    }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum NumberType {
     U8,
     U16,
@@ -207,23 +229,34 @@ impl NumberType {
     }
 }
 
-#[derive(PartialEq, Eq)]
-pub struct Argument<'a> {
+#[derive(PartialEq, Eq, Clone)]
+pub struct Parameter<'a> {
     pub name: &'a str,
-    pub arg_type: CompType<'a>,
+    pub ty: CompType<'a>,
 }
 
 pub struct StructType<'a> {
     pub name: OnceCell<&'a str>,
     pub fields: HashMap<&'a str, Field<'a>>,
+    pub assoc_consts: HashMap<&'a str, Constant<'a>>,
+}
+
+impl<'a> StructType<'a> {
+    pub fn size(&self) -> uarch {
+        self.fields.iter().map(|(_, f)| f.field_type.size()).sum()
+    }
+    pub fn name(&self) -> &'a str {
+        self.name.get().unwrap_or(&"{unnamed struct}")
+    }
 }
 
 pub struct Field<'a> {
     pub field_type: CompType<'a>,
-    pub offset: u16,
+    pub offset: uarch,
 }
 
-pub struct StructPointer<'a>(Arc<StructType<'a>>);
+#[derive(Clone)]
+pub struct StructPointer<'a>(pub Arc<StructType<'a>>);
 impl PartialEq for StructPointer<'_> {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
@@ -233,16 +266,33 @@ impl Eq for StructPointer<'_> {}
 
 pub struct EnumType<'a> {
     pub name: OnceCell<&'a str>,
-    pub tag_bytes: usize,
+    pub tag_bytes: uarch,
     pub variants: HashMap<&'a str, Variant<'a>>,
+    pub assoc_consts: HashMap<&'a str, Constant<'a>>,
+}
+
+impl<'a> EnumType<'a> {
+    pub fn size(&self) -> uarch {
+        self.tag_bytes
+            + self
+                .variants
+                .iter()
+                .map(|(_, v)| v.inner_type.as_ref().map_or(0, |t| t.size()))
+                .max()
+                .unwrap_or(0)
+    }
+    pub fn name(&self) -> &'a str {
+        self.name.get().unwrap_or(&"{unnamed struct}")
+    }
 }
 
 pub struct Variant<'a> {
-    pub inner_type: CompType<'a>,
-    pub tag: u16,
+    pub inner_type: Option<CompType<'a>>,
+    pub tag: uarch,
 }
 
-pub struct EnumPointer<'a>(Arc<EnumType<'a>>);
+#[derive(Clone)]
+pub struct EnumPointer<'a>(pub Arc<EnumType<'a>>);
 impl PartialEq for EnumPointer<'_> {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
