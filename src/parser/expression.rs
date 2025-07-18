@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::{
     compiler::comp_type::NumberType,
     error::{Error, Result},
@@ -101,20 +103,53 @@ pub enum Expression<'a> {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Operation {
     Concat,
-    Exponent,
+    Arithmatic(ArithmaticOperation),
+    Comparison(ComparisonOperation),
+    Equals { inverted: bool },
+    Boolean(BooleanOperation),
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub enum ArithmaticOperation {
     Multiply,
     Divide,
     Add,
     Subtract,
-    Equals,
-    NotEquals,
+}
+impl ArithmaticOperation {
+    pub fn impl_name(&self) -> &'static str {
+        match self {
+            ArithmaticOperation::Multiply => "__op_multiply",
+            ArithmaticOperation::Divide => "__op_divide",
+            ArithmaticOperation::Add => "__op_add",
+            ArithmaticOperation::Subtract => "__op_subtract",
+        }
+    }
+}
+impl Display for ArithmaticOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ArithmaticOperation::Multiply => f.write_str("multiplication"),
+            ArithmaticOperation::Divide => f.write_str("division"),
+            ArithmaticOperation::Add => f.write_str("addition"),
+            ArithmaticOperation::Subtract => f.write_str("subtraction"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub enum ComparisonOperation {
     Lt,
     LtEqual,
     Gt,
     GtEqual,
+}
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub enum BooleanOperation {
     And,
     Or,
 }
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum UnaryOperation {
     Not,
@@ -797,18 +832,18 @@ impl<'a> Parse<'a> for Expression<'a> {
             let op = Chunk::new(
                 op.span,
                 match op.data {
-                    Token::Plus => Operation::Add,
-                    Token::Minus => Operation::Subtract,
-                    Token::Asterisk => Operation::Multiply,
-                    Token::Slash => Operation::Divide,
-                    Token::DoubleEquals => Operation::Equals,
-                    Token::NotEquals => Operation::NotEquals,
-                    Token::Gt => Operation::Gt,
-                    Token::GtEquals => Operation::GtEqual,
-                    Token::Lt => Operation::Lt,
-                    Token::LtEquals => Operation::LtEqual,
-                    Token::DoubleAmpersand => Operation::And,
-                    Token::DoublePipe => Operation::Or,
+                    Token::Plus => Operation::Arithmatic(ArithmaticOperation::Add),
+                    Token::Minus => Operation::Arithmatic(ArithmaticOperation::Subtract),
+                    Token::Asterisk => Operation::Arithmatic(ArithmaticOperation::Multiply),
+                    Token::Slash => Operation::Arithmatic(ArithmaticOperation::Divide),
+                    Token::DoubleEquals => Operation::Equals { inverted: false },
+                    Token::NotEquals => Operation::Equals { inverted: true },
+                    Token::Gt => Operation::Comparison(ComparisonOperation::Gt),
+                    Token::GtEquals => Operation::Comparison(ComparisonOperation::GtEqual),
+                    Token::Lt => Operation::Comparison(ComparisonOperation::Lt),
+                    Token::LtEquals => Operation::Comparison(ComparisonOperation::LtEqual),
+                    Token::DoubleAmpersand => Operation::Boolean(BooleanOperation::And),
+                    Token::DoublePipe => Operation::Boolean(BooleanOperation::Or),
                     _ => break,
                 },
             );

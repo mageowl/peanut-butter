@@ -1,4 +1,4 @@
-use std::{cell::OnceCell, collections::HashMap, mem, sync::Arc};
+use std::{cell::OnceCell, collections::HashMap, iter, mem, sync::Arc};
 
 use super::{
     Compiler, Constant, Literal,
@@ -8,12 +8,16 @@ use super::{
         StructType, Variant,
     },
     min_bytes,
+    writer::{
+        OpArithmatic, OpComparison, OpEqual, OpJumpIfZero, OpNegate, OpPushZeroed, OpStackWrite,
+    },
 };
 use crate::{
     arch::{iarch, uarch},
+    compiler::writer::{OpConstant, OpStackCopy},
     error::{Error, Result},
     parser::{
-        expression::{Expression, Operation},
+        expression::{BooleanOperation, ComparisonOperation, Expression, Operation},
         statement::{ConstantDefinition, FunctionDefinition},
     },
     span::Chunk,
@@ -39,7 +43,10 @@ impl<'a> Compiler<'a> {
                 offset
             }
         };
-        self.instructions.op_constant(offset, lit_type);
+        self.instructions.push(OpConstant {
+            offset,
+            size: lit_type.size(),
+        });
     }
 
     fn create_assocs(
@@ -218,12 +225,16 @@ impl<'a> Compiler<'a> {
                             expr.span,
                         ));
                     }
-                    self.instructions
-                        .op_stack_copy(var.offset.try_into().unwrap(), &var.val_type);
+                    self.instructions.push(OpStackCopy {
+                        offset: var.offset.try_into().unwrap(),
+                        size: var.val_type.size(),
+                    });
                     var.val_type.clone()
                 } else if let Some(constant) = self.constants.get(name) {
-                    self.instructions
-                        .op_constant(constant.offset, &constant.val_type);
+                    self.instructions.push(OpConstant {
+                        offset: constant.offset,
+                        size: constant.val_type.size(),
+                    });
                     constant.val_type.clone()
                 } else {
                     return Err(Error::new(format!("Unknown variable '{name}'."), expr.span));
@@ -365,7 +376,9 @@ impl<'a> Compiler<'a> {
                     return Err(Error::new("Missing properties.", expr.span)); // TODO: which ones
                 }
 
-                self.instructions.op_push_zeroed(struct_type.0.size());
+                self.instructions.push(OpPushZeroed {
+                    size: struct_type.0.size(),
+                });
                 for (name, value) in properties {
                     let field = struct_type.0.fields.get(name.data).ok_or_else(|| {
                         Error::new(
@@ -385,12 +398,12 @@ impl<'a> Compiler<'a> {
                             const_scope: ctx.const_scope,
                         },
                     )?;
-                    self.instructions.op_stack_write(
-                        field.offset as iarch
+                    self.instructions.push(OpStackWrite {
+                        offset: field.offset as iarch
                             - (struct_type.0.size() as iarch)
                             - field.field_type.size() as iarch,
-                        &field.field_type,
-                    );
+                        size: field.field_type.size(),
+                    });
                 }
 
                 CompType::Struct(struct_type)
@@ -407,12 +420,47 @@ impl<'a> Compiler<'a> {
 
             Expression::BinaryOp { lhs, rhs, op } => match op.data {
                 Operation::Concat => todo!(),
-                Operation::Exponent => todo!(), // TODO: get rid of exponent operator
-                Operation::Multiply => todo!(),
-                Operation::Divide => todo!(),
-                Operation::Add => todo!(),
-                Operation::Subtract => todo!(),
-                op @ (Operation::Equals | Operation::NotEquals) => {
+                Operation::Arithmatic(op) => {
+                    let lhs_span = lhs.span;
+                    let ty = self.compile_expr(
+                        lhs.unbox(),
+                        ExpressionContext {
+                            return_type: ctx.return_type.clone(),
+                            expected_type: MaybeUnknownType::Infer,
+                            const_scope: ctx.const_scope,
+                        },
+                    )?;
+                    match &ty {
+                        CompType::Number(num_ty) => {
+                            self.compile_expr(
+                                rhs.unbox(),
+                                ExpressionContext {
+                                    return_type: ctx.return_type.clone(),
+                                    expected_type: MaybeUnknownType::Known(CompType::Number(
+                                        *num_ty,
+                                    )),
+                                    const_scope: ctx.const_scope,
+                                },
+                            )?;
+                            self.instructions.push(OpArithmatic {
+                                num_ty: *num_ty,
+                                op,
+                            });
+                            CompType::Number(*num_ty)
+                        }
+                        CompType::Struct(ptr) => {
+                            ptr.0.assoc_consts.get(op.impl_name());
+                            todo!()
+                        }
+                        _ => {
+                            return Err(Error::new(
+                                format!("Cannot apply the addition operator {op} to {}", ty.name()),
+                                lhs_span,
+                            ));
+                        }
+                    }
+                }
+                Operation::Equals { inverted: invert } => {
                     let ty = self.compile_expr(
                         lhs.unbox(),
                         ExpressionContext {
@@ -430,32 +478,68 @@ impl<'a> Compiler<'a> {
                             const_scope: ctx.const_scope,
                         },
                     )?;
-                    self.instructions
-                        .op_equal(ty_size, op == Operation::NotEquals);
+                    self.instructions.push(OpEqual { ty_size, invert });
                     CompType::Boolean
                 }
-                Operation::Lt => todo!(),
-                Operation::LtEqual => todo!(),
-                Operation::Gt => todo!(),
-                Operation::GtEqual => todo!(),
-                op @ (Operation::And | Operation::Or) => {
+                Operation::Comparison(op) => {
+                    let ty = self.compile_expr(
+                        lhs.unbox(),
+                        ExpressionContext {
+                            return_type: ctx.return_type.clone(),
+                            expected_type: MaybeUnknownType::Infer,
+                            const_scope: ctx.const_scope,
+                        },
+                    )?;
+                    match &ty {
+                        CompType::Number(num_ty) => {
+                            self.compile_expr(
+                                rhs.unbox(),
+                                ExpressionContext {
+                                    return_type: ctx.return_type.clone(),
+                                    expected_type: MaybeUnknownType::Known(CompType::Number(
+                                        *num_ty,
+                                    )),
+                                    const_scope: ctx.const_scope,
+                                },
+                            )?;
+                            self.instructions.push(OpComparison {
+                                num_ty: *num_ty,
+                                op,
+                            });
+                            if matches!(
+                                op,
+                                ComparisonOperation::LtEqual | ComparisonOperation::GtEqual
+                            ) {
+                                self.instructions.push(OpNegate);
+                            }
+                            CompType::Boolean
+                        }
+                        _ => todo!(),
+                    }
+                }
+                Operation::Boolean(op) => {
                     let ctx = ExpressionContext {
                         return_type: ctx.return_type.clone(),
                         expected_type: MaybeUnknownType::Known(CompType::Boolean),
                         const_scope: ctx.const_scope,
                     };
                     self.compile_expr(lhs.unbox(), ctx.clone())?;
+                    let slot = self.instructions.reserve::<OpJumpIfZero>();
                     self.compile_expr(rhs.unbox(), ctx)?;
-                    self.instructions.data.push(if op == Operation::And {
-                        OpCode::BooleanAnd
-                    } else {
-                        OpCode::BooleanOr
-                    } as u8);
+                    self.instructions.fill_reserved(
+                        OpJumpIfZero {
+                            distance: (self.instructions.data.len() - slot.index) as uarch,
+                            invert: op == BooleanOperation::Or,
+                        },
+                        slot,
+                    );
+
                     CompType::Boolean
                 }
             },
             Expression::Group(inner) => {
-                return self.compile_expr(Chunk::new(expr.span, *inner), ctx); // TODO: apply optimizations to groups as well (e.g. var.prop to one StackCopy)
+                // TODO: apply optimizations to groups as well (e.g. var.prop to one StackCopy)
+                return self.compile_expr(Chunk::new(expr.span, *inner), ctx);
             }
 
             expr => {

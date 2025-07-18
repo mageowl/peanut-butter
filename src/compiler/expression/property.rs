@@ -1,6 +1,10 @@
 use crate::{
     arch::{iarch, uarch},
-    compiler::{Compiler, comp_type::CompType},
+    compiler::{
+        Compiler,
+        comp_type::CompType,
+        writer::{OpConstant, OpProperty, OpStackCopy},
+    },
     error::{Error, Result},
     parser::expression::Expression,
     span::Chunk,
@@ -110,16 +114,23 @@ impl<'a> Compiler<'a> {
 
         match prop_data.source {
             Source::Const => {
-                self.instructions
-                    .op_constant(prop_data.offset, &prop_data.val_type);
+                self.instructions.push(OpConstant {
+                    offset: prop_data.offset,
+                    size: prop_data.val_type.size(),
+                });
             }
             Source::LocalVar => {
-                self.instructions
-                    .op_stack_copy(prop_data.offset as iarch, &prop_data.val_type);
+                self.instructions.push(OpStackCopy {
+                    offset: prop_data.offset as iarch,
+                    size: prop_data.val_type.size(),
+                });
             }
             Source::Stack(struct_size) => {
-                self.instructions
-                    .op_property(struct_size, prop_data.offset, &prop_data.val_type);
+                self.instructions.push(OpProperty {
+                    struct_size,
+                    property_offset: prop_data.offset,
+                    property_size: prop_data.val_type.size(),
+                });
             }
         }
 

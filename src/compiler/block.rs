@@ -4,6 +4,7 @@ use super::{
     Compiler, Constant, Variable,
     comp_type::{CompType, MaybeUnknownType, Parameter},
     expression::ExpressionContext,
+    writer::OpPop,
 };
 use crate::{
     arch::uarch,
@@ -245,7 +246,7 @@ impl<'a> Compiler<'a> {
                             const_scope: ctx.const_scope,
                         },
                     )?;
-                    self.instructions.op_pop(&ty);
+                    self.instructions.push(OpPop { size: ty.size() });
                 }
                 _ => todo!(),
             }

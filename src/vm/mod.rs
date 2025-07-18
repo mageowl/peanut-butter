@@ -238,7 +238,7 @@ impl<'f> VirtualMachine<'f> {
         }
     }
 
-    pub fn finish(&mut self) {
+    pub fn run(&mut self) {
         while !self.done {
             self.step();
         }

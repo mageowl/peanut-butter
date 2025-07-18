@@ -18,12 +18,14 @@ pub mod vm;
 mod arch {
     pub type uarch = u16;
     pub type iarch = i16;
+    pub const ARCH_BYTES: usize = 2;
 }
 #[cfg(not(feature = "16bit"))]
 #[expect(non_camel_case_types)]
 mod arch {
     pub type uarch = u64;
     pub type iarch = i64;
+    pub const ARCH_BYTES: usize = 8;
 }
 
 fn main() {
@@ -34,7 +36,7 @@ fn main() {
     let mut compiler = Compiler::new();
     handle_error(compiler.compile_program(ast), &file);
     let mut vm: VirtualMachine = compiler.create_vm();
-    vm.finish();
+    vm.run();
 }
 
 fn handle_error<T>(res: Result<T, Error>, src: &str) -> T {

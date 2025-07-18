@@ -94,7 +94,7 @@ impl<'a> MaybeUnknownType<'a> {
         }
     }
 
-    pub fn name(&self) -> &'static str {
+    pub fn name(&self) -> &'a str {
         match self {
             MaybeUnknownType::UnknownInteger { .. } => "an integer",
             MaybeUnknownType::UnknownFloat => "a float",
@@ -138,8 +138,8 @@ pub enum CompType<'a> {
     },
     Type,
 }
-impl CompType<'_> {
-    pub fn name(&self) -> &'static str {
+impl<'a> CompType<'a> {
+    pub fn name(&self) -> &'a str {
         match self {
             CompType::StringSlice => "a constant string",
             CompType::Number(number_type) => number_type.name(),
@@ -159,7 +159,7 @@ impl CompType<'_> {
                 }
             }
             CompType::Array { .. } => "an array",
-            CompType::Struct(_) => "a struct",
+            CompType::Struct(ptr) => ptr.0.name(),
             CompType::Enum(_) => "an enum",
             CompType::Tuple(_) => "a tuple",
             CompType::Function { .. } => "a function",
@@ -246,7 +246,7 @@ impl<'a> StructType<'a> {
         self.fields.iter().map(|(_, f)| f.field_type.size()).sum()
     }
     pub fn name(&self) -> &'a str {
-        self.name.get().unwrap_or(&"{unnamed struct}")
+        self.name.get().unwrap_or(&"an unnamed struct")
     }
 }
 
@@ -282,7 +282,7 @@ impl<'a> EnumType<'a> {
                 .unwrap_or(0)
     }
     pub fn name(&self) -> &'a str {
-        self.name.get().unwrap_or(&"{unnamed struct}")
+        self.name.get().unwrap_or(&"an unnamed enum")
     }
 }
 

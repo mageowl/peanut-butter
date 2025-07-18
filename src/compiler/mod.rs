@@ -100,7 +100,7 @@ impl<'a> Compiler<'a> {
         self.instructions.data.push(OpCode::ReturnVoid as u8);
 
         let mut vm = VirtualMachine::new(&self.instructions.data, &self.constant_data);
-        vm.finish();
+        vm.run();
         let out = vm.stack.data.into_boxed_slice();
 
         self.instructions.data = old_instructions;
