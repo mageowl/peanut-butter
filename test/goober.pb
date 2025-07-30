@@ -1,2 +1,7 @@
-fn add_one(x: u8) -> u8
-	= x + 1;
+const MyStruct = struct {
+	fn test() -> u8 {
+		1 + 2
+	}
+};
+
+MyStruct::test();

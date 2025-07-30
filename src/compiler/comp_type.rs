@@ -4,13 +4,14 @@ use crate::arch::uarch;
 
 use super::Constant;
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum MaybeUnknownType<'a> {
     UnknownInteger {
         min_bits: u8,
         signed: bool,
     },
     UnknownFloat,
+    UnknownFunction,
     AnonymousStruct {
         fields: Vec<(&'a str, MaybeUnknownType<'a>)>,
     },
@@ -40,6 +41,9 @@ impl<'a> MaybeUnknownType<'a> {
             (Self::UnknownFloat, Self::UnknownFloat) => true,
             (Self::Known(CompType::Number(num)), Self::UnknownFloat)
             | (Self::UnknownFloat, Self::Known(CompType::Number(num))) => num.is_float(),
+
+            (Self::UnknownFunction, Self::UnknownFunction) => true,
+            (Self::UnknownFunction, Self::Known(CompType::Function { .. })) => true,
 
             (Self::AnonymousStruct { fields: f1 }, Self::AnonymousStruct { fields: f2 }) => {
                 f1.len() != f2.len()
@@ -71,6 +75,7 @@ impl<'a> MaybeUnknownType<'a> {
                     && num.bits() >= *min_bits
             }
             (Self::UnknownFloat, CompType::Number(num)) => num.is_float(),
+            (Self::UnknownFunction, CompType::Function { .. }) => true,
             (Self::AnonymousStruct { fields: f1 }, CompType::Struct(ptr)) => {
                 f1.len() != ptr.0.fields.len()
                     && f1.iter().all(|(n1, t1)| {
@@ -98,6 +103,7 @@ impl<'a> MaybeUnknownType<'a> {
         match self {
             MaybeUnknownType::UnknownInteger { .. } => "an integer",
             MaybeUnknownType::UnknownFloat => "a float",
+            MaybeUnknownType::UnknownFunction => "a function",
             MaybeUnknownType::AnonymousStruct { .. } => "an anonymous struct",
             MaybeUnknownType::Known(comp_type) => comp_type.name(),
             MaybeUnknownType::Infer => "an inferred type",
@@ -112,7 +118,7 @@ impl<'a> MaybeUnknownType<'a> {
     }
 }
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum CompType<'a> {
     StringSlice,
     Number(NumberType),
@@ -182,6 +188,13 @@ impl<'a> CompType<'a> {
             CompType::Type => uarch_size,
         }
     }
+    pub fn get_assoc_consts(&self) -> Option<&HashMap<&'a str, Constant<'a>>> {
+        match self {
+            CompType::Struct(ptr) => Some(&ptr.0.assoc_consts),
+            CompType::Enum(ptr) => Some(&ptr.0.assoc_consts),
+            _ => None,
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -229,12 +242,13 @@ impl NumberType {
     }
 }
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Parameter<'a> {
     pub name: &'a str,
     pub ty: CompType<'a>,
 }
 
+#[derive(Debug)]
 pub struct StructType<'a> {
     pub name: OnceCell<&'a str>,
     pub fields: HashMap<&'a str, Field<'a>>,
@@ -250,12 +264,13 @@ impl<'a> StructType<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct Field<'a> {
     pub field_type: CompType<'a>,
     pub offset: uarch,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StructPointer<'a>(pub Arc<StructType<'a>>);
 impl PartialEq for StructPointer<'_> {
     fn eq(&self, other: &Self) -> bool {
@@ -264,6 +279,7 @@ impl PartialEq for StructPointer<'_> {
 }
 impl Eq for StructPointer<'_> {}
 
+#[derive(Debug)]
 pub struct EnumType<'a> {
     pub name: OnceCell<&'a str>,
     pub tag_bytes: uarch,
@@ -286,12 +302,13 @@ impl<'a> EnumType<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct Variant<'a> {
     pub inner_type: Option<CompType<'a>>,
     pub tag: uarch,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct EnumPointer<'a>(pub Arc<EnumType<'a>>);
 impl PartialEq for EnumPointer<'_> {
     fn eq(&self, other: &Self) -> bool {

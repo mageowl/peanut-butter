@@ -6,10 +6,10 @@ const Pt = struct {
 		return Self { x, y };
 	}
 
-	fn add(a: Self, b: Self) -> Self {
+	fn add(self, b: Self) -> Self {
 		return Self {
-			.x = a.x + b.x,
-			.y = a.y + b.y,
+			.x = self.x + b.x,
+			.y = self.y + b.y,
 		};
 	}
 

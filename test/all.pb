@@ -49,7 +49,7 @@
 		y = 10,
 	};
 
-	print("(4, 10) ="my_point.to_str());
+	print("(4, 10) = "my_point.to_str());
 }
 
 // Enums
@@ -69,7 +69,7 @@
 			};
 	};
 
-	var error = HTTPError.other(418);
+	var error = HTTPError::Other(418);
 
 	print("418 = "error.to_str());
 }
@@ -119,7 +119,7 @@
 {
 	const Pt = @import("./point.pb");
 
-	var my_point = Pt.new(10, 2);
+	var my_point = Pt::new(10, 2);
 	print("(10, 2) = "my_point.to_str());
 }
 

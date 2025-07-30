@@ -345,8 +345,13 @@ impl<'a> Expression<'a> {
                         return Err(Error::new("Expected a comma.", name.span));
                     }
 
-                    parse_token(source, Token::Equals)?;
-                    let value = Self::parse(source)?;
+                    let value = if matches!(source.peek_token(), Some(Token::Equals)) {
+                        source.next();
+                        Self::parse(source)?
+                    } else {
+                        Chunk::new(name.span, Self::Ident(name.data))
+                    };
+
                     if let Some(Token::Comma) = source.peek_token() {
                         source.next();
                     } else {

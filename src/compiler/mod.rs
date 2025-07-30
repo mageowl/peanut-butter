@@ -16,6 +16,7 @@ use crate::{
 pub mod block;
 pub mod comp_type;
 pub mod expression;
+pub mod function;
 pub mod writer;
 
 pub struct Compiler<'a> {
@@ -32,12 +33,14 @@ pub struct Compiler<'a> {
     function_data: Vec<u8>,
 }
 
+#[derive(Debug)]
 struct Variable<'a> {
     val_type: CompType<'a>,
     offset: uarch,
     initialized: bool,
 }
 
+#[derive(Debug)]
 pub struct Constant<'a> {
     pub val_type: CompType<'a>,
     pub offset: uarch,
@@ -48,16 +51,25 @@ impl<'a> Compiler<'a> {
         Self {
             variables: HashMap::new(),
             variable_size: 0,
-            constants: HashMap::from([(
-                "u8",
-                Constant {
-                    val_type: CompType::Type,
-                    offset: 0,
-                },
-            )]),
+            constants: HashMap::from([
+                (
+                    "u8",
+                    Constant {
+                        val_type: CompType::Type,
+                        offset: 0,
+                    },
+                ),
+                (
+                    "type",
+                    Constant {
+                        val_type: CompType::Type,
+                        offset: 8,
+                    },
+                ),
+            ]),
             literals: HashMap::new(),
-            constant_data: vec![0, 0, 0, 0, 0, 0, 0, 0],
-            type_map: vec![CompType::Number(comp_type::NumberType::U8)], // TODO: move to prelude
+            constant_data: vec![0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+            type_map: vec![CompType::Number(comp_type::NumberType::U8), CompType::Type], // TODO: move to prelude
             instructions: InstructionWriter::default(),
             function_data: Vec::new(),
         }
@@ -70,24 +82,27 @@ impl<'a> Compiler<'a> {
                 return_type: Some(MaybeUnknownType::Infer),
                 expected_tail_type: MaybeUnknownType::Infer,
                 const_scope: false,
+                extra_local_vars: 0,
             },
         )?;
-        self.instructions.data.push(OpCode::ReturnVoid as u8);
+        self.instructions.data.push(OpCode::Return as u8);
         Ok(())
     }
 
-    pub fn create_vm(&self) -> VirtualMachine {
-        VirtualMachine::new(&self.instructions.data, &self.constant_data)
-    }
+    // pub fn create_vm(&self) -> VirtualMachine {
+    //     VirtualMachine::new(&self.instructions.data, &self.constant_data)
+    // }
 
     fn execute_const_expr(
         &mut self,
         expr: Chunk<Expression<'a>>,
         expected_type: MaybeUnknownType<'a>,
     ) -> Result<(Box<[u8]>, CompType<'a>)> {
-        let old_instructions = mem::replace(&mut self.instructions.data, Vec::new());
+        let old_instructions =
+            mem::replace(&mut self.instructions.data, self.function_data.clone());
         let old_variables = mem::replace(&mut self.variables, HashMap::new());
         let old_variable_size = mem::replace(&mut self.variable_size, 0);
+        let start = self.function_data.len();
 
         let ty = self.compile_expr(
             expr,
@@ -97,9 +112,9 @@ impl<'a> Compiler<'a> {
                 const_scope: true,
             },
         )?;
-        self.instructions.data.push(OpCode::ReturnVoid as u8);
+        self.instructions.data.push(OpCode::Return as u8);
 
-        let mut vm = VirtualMachine::new(&self.instructions.data, &self.constant_data);
+        let mut vm = VirtualMachine::new(&self.instructions.data, &self.constant_data, start);
         vm.run();
         let out = vm.stack.data.into_boxed_slice();
 
@@ -143,19 +158,26 @@ impl<'a> Literal<'a> {
 pub struct VirtualMachineFactory {
     instructions: Vec<u8>,
     constant_data: Vec<u8>,
+    program_start: usize,
 }
 
 impl VirtualMachineFactory {
-    pub fn create(&self) -> VirtualMachine {
-        VirtualMachine::new(&self.instructions, &self.constant_data)
+    pub fn make(&self) -> VirtualMachine {
+        VirtualMachine::new(&self.instructions, &self.constant_data, self.program_start)
     }
 }
 
 impl<'a> From<Compiler<'a>> for VirtualMachineFactory {
-    fn from(compiler: Compiler<'a>) -> Self {
+    fn from(mut compiler: Compiler<'a>) -> Self {
+        let program_start = compiler.function_data.len();
+        compiler
+            .function_data
+            .append(&mut compiler.instructions.data);
+
         Self {
-            instructions: compiler.instructions.data,
+            instructions: compiler.function_data,
             constant_data: compiler.constant_data,
+            program_start,
         }
     }
 }

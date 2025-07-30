@@ -33,23 +33,29 @@ impl Error {
                 println!(
                     "\x1b[2m{} |\x1b[22m {}\x1b[1;31m{}\x1b[0m{}",
                     self.span.start.ln + i + 1,
-                    &line[0..self.span.start.col],
-                    &line[self.span.start.col..self.span.end.col],
-                    &line[self.span.end.col..]
+                    &line[0..self.span.start.col].replace("\t", "    "),
+                    &line[self.span.start.col..self.span.end.col].replace("\t", "    "),
+                    &line[self.span.end.col..].replace("\t", "    ")
                 );
             } else if first {
                 println!(
                     "\x1b[2m{} |\x1b[22m {}\x1b[1;31m{}\x1b[0m",
                     self.span.start.ln + i + 1,
-                    &line[0..self.span.start.col],
-                    &line[self.span.start.col..],
+                    &line[0..self.span.start.col].replace("\t", "    "),
+                    &line[self.span.start.col..].replace("\t", "    "),
                 );
             } else if last {
                 println!(
                     "\x1b[2m{} |\x1b[22m \x1b[1;31m{}\x1b[0m{}",
                     self.span.start.ln + i + 1,
-                    &line[0..self.span.end.col],
-                    &line[self.span.end.col..],
+                    &line[0..self.span.end.col].replace("\t", "    "),
+                    &line[self.span.end.col..].replace("\t", "    "),
+                );
+            } else {
+                println!(
+                    "\x1b[2m{} |\x1b[22m \x1b[1;31m{}\x1b[0m",
+                    self.span.start.ln + i + 1,
+                    &line.replace("\t", "    "),
                 );
             }
         }

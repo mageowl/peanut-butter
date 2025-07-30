@@ -73,6 +73,7 @@ impl<'a> TokenStream<'a> {
         macro_rules! double_operator {
             ($token: ident, $pos: expr) => {{
                 self.chars.next();
+                self.pos.col += 1;
                 Some(Ok(Chunk::new(
                     Span {
                         start: $pos.prev().prev(),

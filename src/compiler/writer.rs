@@ -184,6 +184,29 @@ impl Operation for OpNegate {
     }
 }
 
+pub struct OpCall {
+    pub arg_size: uarch,
+}
+impl Operation for OpCall {
+    fn append_to(self, vec: &mut Vec<u8>) {
+        vec.push(OpCode::Call as u8);
+        vec.extend(self.arg_size.to_le_bytes())
+    }
+    fn size() -> usize {
+        1 + ARCH_BYTES
+    }
+}
+
+pub struct OpReturn;
+impl Operation for OpReturn {
+    fn append_to(self, vec: &mut Vec<u8>) {
+        vec.push(OpCode::Return as u8);
+    }
+    fn size() -> usize {
+        1
+    }
+}
+
 pub(super) struct OpArithmatic {
     pub(super) num_ty: NumberType,
     pub(super) op: ArithmaticOperation,

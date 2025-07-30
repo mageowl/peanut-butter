@@ -5,3 +5,4 @@ edition = "2024"
 
 [features]
 16bit = []
+vm_debug = []

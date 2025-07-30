@@ -6,7 +6,7 @@ use crate::{arch::iarch, arch::uarch};
 
 pub mod bytecode;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(crate) struct Stack {
     pub(crate) data: Vec<u8>,
 }
@@ -28,6 +28,10 @@ impl Stack {
         self.data.extend(x.to_le_bytes());
     }
 
+    fn pop_bytes(&mut self, n: usize) -> Vec<u8> {
+        let new_len = self.data.len() - n;
+        self.data.split_off(new_len)
+    }
     fn pop_u8(&mut self) -> u8 {
         return self.data.pop().unwrap(); // TODO: error handling
     }
@@ -54,9 +58,11 @@ impl Stack {
             self.data.pop().unwrap(),
         ]);
     }
-    fn pop_bytes(&mut self, n: usize) -> Vec<u8> {
-        let new_len = self.data.len() - n;
-        self.data.split_off(new_len)
+    fn pop_uarch(&mut self) -> uarch {
+        #[cfg(feature = "16bit")]
+        return self.pop_u16();
+        #[cfg(not(feature = "16bit"))]
+        return self.pop_u64();
     }
 }
 
@@ -66,18 +72,20 @@ pub struct VirtualMachine<'f> {
     pub(crate) call_stack: Vec<usize>,
     pub(crate) constant_data: &'f Vec<u8>,
     pub(crate) stack: Stack,
+    pub(crate) stack_frame: Vec<usize>,
     pub(crate) done: bool,
 }
 
 impl<'f> VirtualMachine<'f> {
-    pub fn new(instructions: &'f Vec<u8>, constant_data: &'f Vec<u8>) -> Self {
-        assert!(instructions.len() > 0);
+    pub fn new(instructions: &'f Vec<u8>, constant_data: &'f Vec<u8>, ip: usize) -> Self {
+        assert!(instructions.len() > ip);
         Self {
             instructions,
-            ip: 0,
+            ip,
             call_stack: Vec::new(),
             constant_data,
             stack: Stack::default(),
+            stack_frame: vec![0],
             done: false,
         }
     }
@@ -166,21 +174,41 @@ impl<'f> VirtualMachine<'f> {
     }
 
     pub fn step(&mut self) {
+        #[cfg(feature = "vm_debug")]
+        print!("{:4} ", self.ip);
+
         match self.read_op_code() {
             OpCode::Pop => {
+                #[cfg(feature = "vm_debug")]
+                println!("Pop");
+
                 let size = self.read_uarch() as usize;
-                dbg!(self.stack.pop_bytes(size));
+                self.stack.pop_bytes(size);
             }
-            OpCode::ReturnVoid => {
-                self.done = true; // TODO: functions
+            OpCode::Return => {
+                #[cfg(feature = "vm_debug")]
+                println!("Return ({:?})", &self.stack);
+
+                self.stack_frame.pop();
+                if let Some(ip) = self.call_stack.pop() {
+                    self.ip = ip;
+                } else {
+                    self.done = true;
+                }
             }
             OpCode::Constant => {
+                #[cfg(feature = "vm_debug")]
+                println!("Constant");
+
                 let offset = self.read_u8() as usize;
                 let size = self.read_uarch() as usize;
                 self.stack
                     .push_bytes(&self.constant_data[offset..offset + size]);
             }
             OpCode::LongConstant => {
+                #[cfg(feature = "vm_debug")]
+                println!("LongConstant");
+
                 let offset = self.read_uarch() as usize;
                 let size = self.read_uarch() as usize;
                 self.stack
@@ -191,12 +219,18 @@ impl<'f> VirtualMachine<'f> {
                 let idx = if offset < 0 {
                     self.stack.data.len() - (-offset) as usize
                 } else {
-                    offset as usize
+                    self.stack_frame.last().copied().unwrap_or(0) + offset as usize
                 };
                 let size = self.read_uarch() as usize;
+                #[cfg(feature = "vm_debug")]
+                println!("StackCopy {:?}", &self.stack.data[idx..idx + size]);
+
                 self.stack.data.extend_from_within(idx..idx + size);
             }
             OpCode::StackWrite => {
+                #[cfg(feature = "vm_debug")]
+                println!("StackWrite");
+
                 let offset = self.read_iarch() as isize;
                 let size = self.read_uarch() as usize;
                 let len = self.stack.data.len() - size;
@@ -209,15 +243,24 @@ impl<'f> VirtualMachine<'f> {
                 self.stack.data.truncate(len);
             }
             OpCode::U8Add => {
+                #[cfg(feature = "vm_debug")]
+                println!("U8Add");
+
                 let b = self.stack.pop_u8();
                 let a = self.stack.pop_u8();
                 self.stack.push_u8(a + b);
             }
             OpCode::PushZeroed => {
+                #[cfg(feature = "vm_debug")]
+                println!("PushZeroed");
+
                 let size = self.read_uarch() as usize;
                 self.stack.data.resize(self.stack.data.len() + size, 0);
             }
             OpCode::Property => {
+                #[cfg(feature = "vm_debug")]
+                println!("Property");
+
                 let struct_size = self.read_uarch() as usize;
                 let offset = self.read_uarch() as usize;
                 let size = self.read_uarch() as usize;
@@ -230,6 +273,19 @@ impl<'f> VirtualMachine<'f> {
                     .truncate(self.stack.data.len() - struct_size + size);
                 let start = self.stack.data.len() - size;
                 self.stack.data[start..].copy_from_slice(&src);
+            }
+            OpCode::Call => {
+                #[cfg(feature = "vm_debug")]
+                println!("Call");
+
+                let argument_size = self.read_uarch() as usize;
+                let arguments = self.stack.pop_bytes(argument_size);
+
+                self.call_stack.push(self.ip);
+                self.ip = self.stack.pop_uarch() as usize;
+                self.stack_frame.push(self.stack.data.len());
+
+                self.stack.push_bytes(&arguments);
             }
             op_code => {
                 dbg!(op_code);

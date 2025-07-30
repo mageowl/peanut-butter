@@ -282,10 +282,17 @@ impl<'a> Parse<'a> for Block<'a> {
 #[derive(Debug)]
 pub struct FunctionDefinition<'a> {
     pub name: Chunk<&'a str>,
-    pub self_parameter: bool,
+    pub self_parameter: SelfParameter,
     pub parameters: Vec<Chunk<Parameter<'a>>>,
     pub return_type: Option<Chunk<Expression<'a>>>,
     pub body: Chunk<Block<'a>>,
+}
+
+#[derive(Debug)]
+pub enum SelfParameter {
+    None,
+    Borrowed,
+    Take,
 }
 
 impl<'a> Parse<'a> for FunctionDefinition<'a> {
@@ -297,12 +304,18 @@ impl<'a> Parse<'a> for FunctionDefinition<'a> {
         let name = <&str>::parse(source)?;
 
         parse_token(source, Token::ParenOpen)?;
-        let self_parameter = if let Some(Token::Ampersand) = source.peek_token() {
-            source.next();
-            parse_token(source, Token::KeywordSelf)?;
-            true
-        } else {
-            false
+        let self_parameter = match source.peek_token() {
+            Some(Token::Ampersand) => {
+                source.next();
+                parse_token(source, Token::KeywordSelf)?;
+                SelfParameter::Borrowed
+            }
+            // TODO: do I need this?
+            // Some(Token::KeywordSelf) => {
+            //     source.next();
+            //     SelfParameter::Take
+            // }
+            _ => SelfParameter::None,
         };
         let parameters = Parameter::parse_group(source, Token::Comma, Token::ParenClose)?;
 

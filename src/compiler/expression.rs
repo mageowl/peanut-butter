@@ -1,4 +1,4 @@
-use std::{cell::OnceCell, collections::HashMap, iter, mem, sync::Arc};
+use std::{cell::OnceCell, collections::HashMap, fmt::Arguments, mem, sync::Arc};
 
 use super::{
     Compiler, Constant, Literal,
@@ -14,14 +14,13 @@ use super::{
 };
 use crate::{
     arch::{iarch, uarch},
-    compiler::writer::{OpConstant, OpStackCopy},
+    compiler::writer::{OpCall, OpConstant, OpStackCopy},
     error::{Error, Result},
     parser::{
         expression::{BooleanOperation, ComparisonOperation, Expression, Operation},
         statement::{ConstantDefinition, FunctionDefinition},
     },
     span::Chunk,
-    vm::bytecode::OpCode,
 };
 
 pub mod property;
@@ -34,7 +33,7 @@ pub struct ExpressionContext<'a> {
 }
 
 impl<'a> Compiler<'a> {
-    fn compile_literal(&mut self, literal: Literal, lit_type: &CompType) {
+    fn compile_literal(&mut self, literal: Literal, lit_type: &CompType) -> uarch {
         let offset = match self.literals.get(&literal) {
             Some(offset) => *offset,
             None => {
@@ -47,6 +46,7 @@ impl<'a> Compiler<'a> {
             offset,
             size: lit_type.size(),
         });
+        offset
     }
 
     fn create_assocs(
@@ -218,6 +218,7 @@ impl<'a> Compiler<'a> {
             }
 
             Expression::Ident(name) => {
+                dbg!(&self.variables);
                 if let Some(var) = self.variables.get(name) {
                     if !var.initialized {
                         return Err(Error::new(
@@ -241,9 +242,82 @@ impl<'a> Compiler<'a> {
                 }
             }
             Expression::IdentSelf => todo!(),
-
             Expression::Property(target, name) => {
                 self.compile_property(target.unbox(), name, ctx.clone())?
+            }
+            Expression::CallMethod {
+                object,
+                name,
+                arguments,
+            } => {
+                let const_expr = self.is_const(&object.data);
+                let old_instructions =
+                    mem::replace(&mut self.instructions.data, self.function_data.clone());
+                // let old_variables = mem::replace(&mut self.variables, HashMap::new());
+                // let old_variable_size = mem::replace(&mut self.variable_size, 0);
+                let start = self.function_data.len();
+
+                let ty = self.compile_expr(
+                    object.unbox(),
+                    ExpressionContext {
+                        return_type: ctx.return_type,
+                        expected_type: MaybeUnknownType::Infer,
+                        const_scope: ctx.const_scope,
+                    },
+                )?;
+
+                if let CompType::Type = ty {
+                    if !const_expr {
+                        return Err(Error::new(
+                            "Cannot access associated constants or methods on a variable type.",
+                            name.span,
+                        ));
+                    }
+                } else {
+                    match ty.get_assoc_consts() {
+                        Some(consts) => {
+                            todo!()
+                        }
+                        None => todo!(),
+                    }
+                }
+                todo!()
+            }
+            Expression::Call {
+                function,
+                arguments,
+            } => {
+                let function_span = function.span;
+                let CompType::Function {
+                    parameters,
+                    return_type,
+                } = self.compile_expr(
+                    function.unbox(),
+                    ExpressionContext {
+                        return_type: ctx.return_type.clone(),
+                        expected_type: MaybeUnknownType::UnknownFunction,
+                        const_scope: ctx.const_scope,
+                    },
+                )?
+                else {
+                    return Err(Error::new("Expected a function.", function_span));
+                };
+
+                let mut arg_size = 0;
+                for (param, arg) in parameters.into_iter().zip(arguments) {
+                    self.compile_expr(
+                        arg,
+                        ExpressionContext {
+                            return_type: ctx.return_type.clone(),
+                            expected_type: MaybeUnknownType::Known(param.ty.clone()),
+                            const_scope: ctx.const_scope,
+                        },
+                    )?;
+                    arg_size += param.ty.size();
+                }
+
+                self.instructions.push(OpCall { arg_size });
+                *return_type
             }
 
             Expression::StructType {
@@ -279,16 +353,24 @@ impl<'a> Compiler<'a> {
                     })
                     .collect::<Result<_>>()?;
 
+                let id = self.type_map.len() as uarch;
+                let offset = self.compile_literal(Literal::UArch(id), &CompType::Type);
+                // let old_self_const = self.constants.insert(
+                //     "Self",
+                //     Constant {
+                //         val_type: CompType::Type,
+                //         offset,
+                //     },
+                // );
+
                 let assoc_consts = self.create_assocs(constants, methods)?;
 
-                let id = self.type_map.len() as uarch;
                 self.type_map
                     .push(CompType::Struct(StructPointer(Arc::new(StructType {
                         name: OnceCell::new(),
                         fields,
                         assoc_consts,
                     }))));
-                self.compile_literal(Literal::UArch(id), &CompType::Type);
                 CompType::Type
             }
             Expression::EnumType {
@@ -415,6 +497,7 @@ impl<'a> Compiler<'a> {
                     return_type: ctx.return_type.clone(),
                     expected_tail_type: ctx.expected_type.clone(),
                     const_scope: ctx.const_scope,
+                    extra_local_vars: 0,
                 },
             )?,
 
@@ -426,7 +509,7 @@ impl<'a> Compiler<'a> {
                         lhs.unbox(),
                         ExpressionContext {
                             return_type: ctx.return_type.clone(),
-                            expected_type: MaybeUnknownType::Infer,
+                            expected_type: ctx.expected_type.clone(),
                             const_scope: ctx.const_scope,
                         },
                     )?;
@@ -559,6 +642,56 @@ impl<'a> Compiler<'a> {
             ))
         } else {
             Ok(ty)
+        }
+    }
+
+    fn is_const(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::Null => todo!(), // TODO: Remove null
+            Expression::String(_)
+            | Expression::Int { .. }
+            | Expression::Float { .. }
+            | Expression::Boolean(_) => true,
+            Expression::Ident(name) => self.constants.contains_key(name),
+            Expression::IdentSelf => false,
+            Expression::Property(target, _) => self.is_const(&target.data),
+            Expression::CallMethod {
+                object,
+                name: _,
+                arguments,
+            } => self.is_const(&object.data) && arguments.iter().all(|e| self.is_const(&e.data)),
+            Expression::Call {
+                function,
+                arguments,
+            } => self.is_const(&function.data) && arguments.iter().all(|e| self.is_const(&e.data)),
+            Expression::StructType { properties, .. } => {
+                properties.iter().all(|p| self.is_const(&p.1.data))
+            }
+            Expression::EnumType { variants, .. } => variants.iter().all(|v| {
+                if let Some(v) = v.1.as_ref() {
+                    self.is_const(&v.data)
+                } else {
+                    true
+                }
+            }),
+            Expression::StructInitializer {
+                struct_type: _,
+                properties,
+            } => properties.iter().all(|p| self.is_const(&p.1.data)),
+            Expression::Tuple(chunks) => chunks.iter().all(|c| self.is_const(&c.data)),
+            Expression::Block(block) => todo!(), // TODO: blocks are constant unless they use variables from the outside scope.
+            Expression::If { blocks, else_block } => todo!(), // TODO: ditto
+            Expression::Match {
+                value,
+                arms,
+                else_arm,
+            } => todo!(), // TODO: ditto
+            Expression::BinaryOp { lhs, rhs, op: _ } => {
+                self.is_const(&lhs.data) && self.is_const(&rhs.data)
+            }
+            Expression::UnaryOp { x, op: _ } => self.is_const(&x.data),
+            Expression::Group(expression) => self.is_const(expression),
+            Expression::BuiltIn { .. } => true,
         }
     }
 }

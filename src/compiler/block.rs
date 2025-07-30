@@ -4,7 +4,7 @@ use super::{
     Compiler, Constant, Variable,
     comp_type::{CompType, MaybeUnknownType, Parameter},
     expression::ExpressionContext,
-    writer::OpPop,
+    writer::{OpPop, OpProperty},
 };
 use crate::{
     arch::uarch,
@@ -18,6 +18,7 @@ pub struct BlockContext<'a> {
     pub return_type: Option<MaybeUnknownType<'a>>, // TODO: convert to reference
     pub expected_tail_type: MaybeUnknownType<'a>,
     pub const_scope: bool,
+    pub extra_local_vars: uarch,
 }
 
 impl<'a> Compiler<'a> {
@@ -35,85 +36,6 @@ impl<'a> Compiler<'a> {
             ));
         }
         Ok(())
-    }
-
-    pub(super) fn compile_fn_def(&mut self, def: FunctionDefinition<'a>) -> Result<Constant<'a>> {
-        let old_instructions = mem::replace(&mut self.instructions.data, Vec::new());
-        let old_variables = mem::replace(&mut self.variables, HashMap::new());
-        let old_variable_size = mem::replace(&mut self.variable_size, 0);
-
-        let parameters = def
-            .parameters
-            .into_iter()
-            .map(|p| {
-                if self.variables.contains_key(p.data.name.data) {
-                    return Err(Error::new(
-                        format!("Parameter '{}' declared more than once.", p.data.name.data),
-                        p.data.name.span,
-                    ));
-                }
-
-                let (type_id, _) =
-                    self.execute_const_expr(p.data.ty, MaybeUnknownType::Known(CompType::Type))?;
-                let ty = self
-                    .get_type(type_id)
-                    .map_err(|()| Error::new("Invalid type.", p.span))?
-                    .clone();
-
-                self.variables.insert(
-                    p.data.name.data,
-                    Variable {
-                        val_type: ty.clone(),
-                        offset: self.variable_size,
-                        initialized: true,
-                    },
-                );
-                self.variable_size += ty.size();
-
-                Ok(Parameter {
-                    name: p.data.name.data,
-                    ty,
-                })
-            })
-            .collect::<Result<_>>()?;
-
-        let return_type = Box::new(if let Some(ty) = def.return_type {
-            let ty_span = ty.span;
-            let (type_id, _) =
-                self.execute_const_expr(ty, MaybeUnknownType::Known(CompType::Type))?;
-            self.get_type(type_id)
-                .map_err(|()| Error::new("Invalid type.", ty_span))?
-                .clone()
-        } else {
-            CompType::Tuple(vec![])
-        });
-
-        self.compile_block(
-            def.body,
-            BlockContext {
-                return_type: Some(MaybeUnknownType::Known(*return_type.clone())),
-                expected_tail_type: MaybeUnknownType::Known(*return_type.clone()),
-                const_scope: false,
-            },
-        )?;
-
-        let offset = self.constant_data.len() as uarch;
-        self.constant_data
-            .extend((self.function_data.len() as uarch).to_le_bytes());
-
-        self.function_data.append(&mut self.instructions.data);
-        self.function_data.push(OpCode::ReturnVoid as u8);
-
-        self.instructions.data = old_instructions;
-        self.variables = old_variables;
-        self.variable_size = old_variable_size;
-        Ok(Constant {
-            val_type: CompType::Function {
-                parameters,
-                return_type,
-            },
-            offset,
-        })
     }
 
     pub(super) fn compile_const_def(
@@ -161,7 +83,7 @@ impl<'a> Compiler<'a> {
         block: Chunk<Block<'a>>,
         ctx: BlockContext<'a>,
     ) -> Result<CompType<'a>> {
-        let mut local_var_size: uarch = 0;
+        let mut local_var_size: uarch = ctx.extra_local_vars;
         let mut local_vars = Vec::new();
         let mut local_consts = Vec::new();
 
@@ -265,8 +187,12 @@ impl<'a> Compiler<'a> {
             CompType::Tuple(vec![])
         };
 
-        self.instructions.data.push(OpCode::Pop as u8);
-        self.instructions.data.extend(local_var_size.to_le_bytes());
+        // Remove the local variables, but keep the tail value.
+        self.instructions.push(OpProperty {
+            struct_size: local_var_size + tail_ty.size(),
+            property_offset: local_var_size,
+            property_size: tail_ty.size(),
+        });
 
         for name in local_vars {
             self.variables.remove(name);

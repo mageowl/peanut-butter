@@ -14,6 +14,7 @@
 	- [ ] boolean
 	- [ ] string
 	- [ ] number
+	- [ ] self type
 	- how are they represented at runtime?
 		- uid?
 - [ ] control flow

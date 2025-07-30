@@ -1,6 +1,6 @@
 use std::{fs, process};
 
-use compiler::Compiler;
+use compiler::{Compiler, VirtualMachineFactory};
 use error::Error;
 use lexer::TokenStream;
 use parser::{Parse, statement::Block};
@@ -35,7 +35,9 @@ fn main() {
 
     let mut compiler = Compiler::new();
     handle_error(compiler.compile_program(ast), &file);
-    let mut vm: VirtualMachine = compiler.create_vm();
+
+    let factory = VirtualMachineFactory::from(compiler);
+    let mut vm = factory.make();
     vm.run();
 }
 
